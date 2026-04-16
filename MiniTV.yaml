@@ -80,7 +80,10 @@ spi:
 font:
   - file: "gfonts://Roboto Mono"
     id: clock_font
-    size: 16
+    size: 32
+  - file: "gfonts://Roboto Mono"
+    id: alert_font
+    size: 32
 
 output:
   - platform: esp8266_pwm
@@ -100,7 +103,7 @@ light:
 display:  
   - platform: mipi_spi
     model: st7789v
-    data_rate: 20Mhz
+    data_rate: 40Mhz
     draw_rounding: 1
     spi_id: spihwd
     dimensions: {height: 240, width: 240, offset_height: 0, offset_width: 0}
@@ -125,11 +128,18 @@ display:
         id(alert_active) = false;
       }
 
-      // Render yellow flash alert if active
+      // Render yellow alert if active
       if (id(alert_active)) {
-        it.fill(Color(255, 255, 0));  // Yellow background
-        it.printf(cx, cy, id(clock_font), Color(0, 0, 0), TextAlign::CENTER, id(alert_text).c_str());
-        return;
+        if ((current_time%2000) < 1000) {  // Blink every 500ms
+          it.fill(Color(200, 255, 0));  // Bright yellow background
+          it.printf(cx, cy, id(alert_font), Color(0, 0, 0), TextAlign::CENTER, id(alert_text).c_str());
+          return;
+        }
+        else {
+          it.fill(Color(0, 0, 0));  // black background
+          it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER, id(alert_text).c_str());
+          return;
+        }
       }
 
       // Normal clock display
