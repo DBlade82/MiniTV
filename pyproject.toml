@@ -1,0 +1,11 @@
+[project]
+name = "minitv"
+version = "0.1.0"
+description = "GeekMagic Mini-TV ESPHome configuration repository"
+authors = ["GitHub Copilot <noreply@example.com>"]
+readme = "README.md"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

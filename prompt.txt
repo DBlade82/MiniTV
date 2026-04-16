@@ -1,0 +1,2 @@
+- rework instructions to fit working on a ESPHome Builder yaml instead of a Python App
+- add requirement display: must have function to flash yellow  for 5 second and show custom text during this time, triggered by Homeassistant (e.g. Door is opened)
