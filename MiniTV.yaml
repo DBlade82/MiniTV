@@ -12,6 +12,20 @@ esp8266:
   board: d1_mini
 
 globals:
+  - id: alert_color_r
+    type: int
+    restore_value: no
+    initial_value: '200'
+  - id: alert_color_g
+    type: int
+    restore_value: no
+    initial_value: '255'
+  - id: alert_color_b
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: alert_font_black
+    type: bool
   - id: alert_active
     type: bool
     restore_value: no
@@ -50,6 +64,10 @@ api:
     - service: trigger_alert
       variables:
         alert_message: string
+        alert_color_r: int
+        alert_color_g: int
+        alert_color_b: int
+        alert_font_black: bool
       then:
         - globals.set:
             id: alert_text
@@ -60,6 +78,19 @@ api:
         - globals.set:
             id: alert_start_time
             value: !lambda 'return millis();'
+        - globals.set:
+            id: alert_color_r
+            value: !lambda 'return alert_color_r;'
+        - globals.set:
+            id: alert_color_g
+            value: !lambda 'return alert_color_g;'
+        - globals.set:
+            id: alert_color_b
+            value: !lambda 'return alert_color_b;'
+        - globals.set:
+            id: alert_font_black
+            value: !lambda 'return alert_font_black;'
+
 
 ota:
   - platform: esphome
@@ -105,6 +136,7 @@ display:
     model: st7789v
     data_rate: 40Mhz
     draw_rounding: 1
+    update_interval: 100ms
     spi_id: spihwd
     dimensions: {height: 240, width: 240, offset_height: 0, offset_width: 0}
     # use_axis_flips: true
@@ -115,7 +147,7 @@ display:
     invert_colors: true
     dc_pin: GPIO00
     reset_pin: GPIO02
-    color_depth: 16
+    color_depth: 8
     spi_mode: mode3
     lambda: |-
       const int cx = it.get_width() / 2;
@@ -131,8 +163,13 @@ display:
       // Render yellow alert if active
       if (id(alert_active)) {
         if ((current_time%2000) < 1000) {  // Blink every 500ms
-          it.fill(Color(200, 255, 0));  // Bright yellow background
-          it.printf(cx, cy, id(alert_font), Color(0, 0, 0), TextAlign::CENTER, id(alert_text).c_str());
+          it.fill(Color(id(alert_color_r), id(alert_color_g), id(alert_color_b)));  // Custom color background
+          if (id(alert_font_black)) {
+            it.printf(cx, cy, id(alert_font), Color(0, 0, 0), TextAlign::CENTER, id(alert_text).c_str());
+          }
+          else {
+            it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER, id(alert_text).c_str());
+          }
           return;
         }
         else {
