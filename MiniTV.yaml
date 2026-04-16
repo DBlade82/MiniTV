@@ -76,7 +76,6 @@ spi:
   mosi_pin: GPIO13
   interface: hardware
   id: spihwd
-  frequency: 25000000
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -86,7 +85,7 @@ font:
 output:
   - platform: esp8266_pwm
     pin: GPIO5
-    frequency: 1000 Hz
+    frequency: 20000 Hz
     id: bl_pwm
     inverted: true
 
@@ -101,8 +100,11 @@ light:
 display:  
   - platform: mipi_spi
     model: st7789v
+    data_rate: 20Mhz
+    draw_rounding: 1
     spi_id: spihwd
     dimensions: {height: 240, width: 240, offset_height: 0, offset_width: 0}
+    # use_axis_flips: true
     transform:
       swap_xy: false
       mirror_x: true
@@ -110,7 +112,7 @@ display:
     invert_colors: true
     dc_pin: GPIO00
     reset_pin: GPIO02
-    color_depth: 8
+    color_depth: 16
     spi_mode: mode3
     lambda: |-
       const int cx = it.get_width() / 2;
