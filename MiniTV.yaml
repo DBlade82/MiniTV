@@ -1,21 +1,76 @@
+# ==============================================================================
+# MiniTV ESPHome Configuration
+# ==============================================================================
+#
+# Target hardware: GeekMagic Mini-TV (ESP8266 / d1_mini / ESP-12F)
+# Display:         ST7789V 240×240 SPI panel
+# Purpose:         Clock display with Home Assistant push-alert overlay.
+#
+# Quickstart:
+#   1. Add wifi_ssid and wifi_password to secrets.yaml.
+#   2. Flash:  esphome run MiniTV.yaml
+#   3. Trigger an alert from a Home Assistant automation:
+#        service: esphome.minitv_trigger_alert
+#        data:
+#          alert_message: "Motion detected!"
+#          alert_color_r: 255
+#          alert_color_g: 200
+#          alert_color_b: 0
+#          alert_font_black: false
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Core ESPHome identity
+#
+# name:          mDNS hostname and entity prefix in Home Assistant.
+# friendly_name: Human-readable label shown in the HA device registry.
+# on_boot:       Force the backlight fully on at startup.  Without this the
+#                panel may stay dark because the light component tries to
+#                restore its previous state before the PWM output is ready.
+# ------------------------------------------------------------------------------
 esphome:
   name: minitv
   friendly_name: GeekMagic Mini-TV
   on_boot:
-    priority: 800
+    priority: 800  # Run before most other components initialise.
     then:
       - light.turn_on:
           id: backlight
           brightness: 100%
 
+# ------------------------------------------------------------------------------
+# Platform: ESP8266 / d1_mini
+#
+# The GeekMagic Mini-TV uses an ESP-12F module wired identically to a Wemos
+# d1_mini, so the board target matches exactly.
+# ------------------------------------------------------------------------------
 esp8266:
   board: d1_mini
 
+# ------------------------------------------------------------------------------
+# Global variables — Alert state machine
+#
+# These globals carry data from the HA service call into the display lambda,
+# which runs on a separate update timer and therefore cannot receive arguments
+# directly.
+#
+# Variables:
+#   alert_color_r (int):       Red channel (0–255) of the alert background.
+#   alert_color_g (int):       Green channel (0–255) of the alert background.
+#   alert_color_b (int):       Blue channel (0–255) of the alert background.
+#   alert_font_black (bool):   Render text in black instead of white.
+#                              Use for light-coloured backgrounds so text is
+#                              still legible.
+#   alert_active (bool):       True while an alert is being displayed.
+#   alert_text (std::string):  The message shown in the alert overlay.
+#   alert_start_time (uint32_t): millis() timestamp when the alert fired,
+#                              used to auto-dismiss after ALERT_DURATION_MS.
+# ------------------------------------------------------------------------------
 globals:
   - id: alert_color_r
     type: int
     restore_value: no
-    initial_value: '200'
+    initial_value: '200'   # Default: amber-orange tint.
   - id: alert_color_g
     type: int
     restore_value: no
@@ -26,6 +81,8 @@ globals:
     initial_value: '0'
   - id: alert_font_black
     type: bool
+    restore_value: no
+    initial_value: 'false'
   - id: alert_active
     type: bool
     restore_value: no
@@ -38,37 +95,85 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  - id: alert_duration_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '5000'  # Default: 5-second display window.
 
+# ------------------------------------------------------------------------------
+# Wi-Fi
+#
+# Credentials are read from secrets.yaml (never commit that file to VCS).
+# A static IP ensures Home Assistant can always reach the device at a
+# predictable address regardless of DHCP lease changes.
+#
+# Fallback AP ("MiniTV Recovery"):
+#   Activated automatically when the primary network is unreachable.
+#   Combine with captive_portal below so any connected browser is redirected
+#   to the Wi-Fi config page.
+#   NOTE: Replace the AP password with a value in secrets.yaml before
+#         deploying to a production environment.
+# ------------------------------------------------------------------------------
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  min_auth_mode: WPA2
+  min_auth_mode: WPA2  # Reject weaker authentication modes.
   manual_ip:
     static_ip: 192.168.223.79
-    gateway: 192.168.223.1
-    subnet: 255.255.255.0
-    dns1: 9.9.9.9
-    dns2: 8.8.8.8
+    gateway:   192.168.223.1
+    subnet:    255.255.255.0
+    dns1:      9.9.9.9    # Quad9 primary.
+    dns2:      8.8.8.8    # Google fallback.
   ap:
     ssid: "MiniTV Recovery"
-    password: "Recover1234"
+    password: !secret wifi_recover_password  # TODO: move to !secret before production use.
 
+# Redirects browsers that connect to the fallback AP to a Wi-Fi config page.
 captive_portal:
 
+# ------------------------------------------------------------------------------
+# Web server
+#
+# Exposes a lightweight REST API and management UI on port 80.
+# Useful for local debugging and inspecting sensor state.
+# Consider disabling (remove this block) in production to reduce attack surface
+# and free ~10 KB of RAM.
+# ------------------------------------------------------------------------------
 web_server:
   port: 80
 
-#enable HA API
+# ------------------------------------------------------------------------------
+# Home Assistant native API
+#
+# Enables the encrypted ESPHome ↔ HA integration channel.
+# Custom services declared here appear as callable services inside HA and can
+# be triggered from automations, scripts, or the Developer Tools panel.
+#
+# Service: trigger_alert
+#   Activates a full-screen overlay message on the display for 5 seconds.
+#   The overlay blinks at 1 Hz (500 ms coloured / 500 ms black) to draw
+#   attention, then automatically dismisses.
+#
+#   Args:
+#     alert_message (string):    Text to display on screen (keep it short —
+#                                one line fits ~10 characters at size 32).
+#     alert_color_r (int):       Red component of background colour (0–255).
+#     alert_color_g (int):       Green component of background colour (0–255).
+#     alert_color_b (int):       Blue component of background colour (0–255).
+#     alert_font_black (bool):   Pass true for dark text on bright backgrounds.
+# ------------------------------------------------------------------------------
 api:
   services:
     - service: trigger_alert
       variables:
-        alert_message: string
-        alert_color_r: int
-        alert_color_g: int
-        alert_color_b: int
+        alert_message:    string
+        alert_color_r:    int
+        alert_color_g:    int
+        alert_color_b:    int
         alert_font_black: bool
+        alert_duration_ms: int
       then:
+        # Atomically update all alert state before the next display refresh.
         - globals.set:
             id: alert_text
             value: !lambda 'return alert_message;'
@@ -90,101 +195,191 @@ api:
         - globals.set:
             id: alert_font_black
             value: !lambda 'return alert_font_black;'
+        - globals.set:
+            id: alert_duration_ms
+            value: !lambda 'return (alert_duration_ms > 0) ? (uint32_t)alert_duration_ms : 5000;'
 
-
+# ------------------------------------------------------------------------------
+# OTA (Over-The-Air) updates
+#
+# Allows flashing new firmware over Wi-Fi without a USB cable.
+# Credentials are managed by the ESPHome dashboard.
+# ------------------------------------------------------------------------------
 ota:
   - platform: esphome
 
-#enable logger
+# ------------------------------------------------------------------------------
+# Logger
+#
+# Streams debug output to the serial port and to the HA log panel.
+# Remove this block (or set level: NONE) in production to recover ~8 KB RAM.
+# ------------------------------------------------------------------------------
 logger:
 
+# ------------------------------------------------------------------------------
+# Time source
+#
+# Synchronises the device clock from Home Assistant over the native API.
+# The display lambda checks now.is_valid() before using the time value so
+# the "Syncing" placeholder is shown during the brief post-boot window.
+# ------------------------------------------------------------------------------
 time:
   - platform: homeassistant
     id: ha_time
 
+# ------------------------------------------------------------------------------
+# SPI bus — Hardware SPI on ESP8266
+#
+# Pin mapping (verified for GeekMagic Mini-TV):
+#   CLK  → GPIO14  (D5 on d1_mini)
+#   MOSI → GPIO13  (D7 on d1_mini)
+#
+# interface: hardware uses the ESP8266's dedicated SPI peripheral for maximum
+# throughput.  Do not switch to software SPI unless debugging pin conflicts.
+# ------------------------------------------------------------------------------
 spi:
-  clk_pin: GPIO14
-  mosi_pin: GPIO13
+  id:        spihwd
   interface: hardware
-  id: spihwd
+  clk_pin:   GPIO14
+  mosi_pin:  GPIO13
 
+# ------------------------------------------------------------------------------
+# Fonts
+#
+# Fonts prefixed with "gfonts://" are downloaded from Google Fonts at compile
+# time and embedded in the firmware binary.
+#
+# Both clock and alert use the same typeface and size so the display stays
+# visually consistent across states.  Increase size cautiously — larger glyphs
+# consume proportionally more flash and heap on the ESP8266.
+# ------------------------------------------------------------------------------
 font:
   - file: "gfonts://Roboto Mono"
     id: clock_font
-    size: 32
+    size: 32  # Fits "HH:MM:SS" centred on a 240-pixel-wide panel.
   - file: "gfonts://Roboto Mono"
     id: alert_font
-    size: 32
+    size: 32  # Matched to clock_font for visual consistency.
 
+# ------------------------------------------------------------------------------
+# Backlight — PWM output
+#
+# The panel backlight is driven through a MOSFET on GPIO5 (D1 on d1_mini).
+# inverted: true because the MOSFET switches the backlight OFF at high duty.
+#
+# The light component below wraps this raw output and exposes a named entity
+# to Home Assistant so brightness can be adjusted from the UI or automations.
+# ------------------------------------------------------------------------------
 output:
   - platform: esp8266_pwm
-    pin: GPIO5
-    frequency: 20000 Hz
-    id: bl_pwm
-    inverted: true
+    id:        bl_pwm
+    pin:       GPIO5
+    frequency: 20000 Hz  # 20 kHz is above the audible threshold; no coil whine.
+    inverted:  true      # Active-low MOSFET gate logic.
 
 light:
   - platform: monochromatic
-    id: backlight
-    name: "MiniTV Backlight"
-    output: bl_pwm
-    default_transition_length: 0s
-    restore_mode: ALWAYS_ON
+    id:                      backlight
+    name:                    "MiniTV Backlight"
+    output:                  bl_pwm
+    default_transition_length: 0s   # Instant transitions; no fading.
+    restore_mode:            ALWAYS_ON  # Re-light the panel after a power cycle.
 
-display:  
+# ------------------------------------------------------------------------------
+# Display — ST7789V 240×240 SPI panel (MIPI interface)
+#
+# Pin mapping (verified for GeekMagic Mini-TV):
+#   DC    → GPIO0  (D3 on d1_mini) — toggles between Data and Command mode.
+#   RESET → GPIO2  (D4 on d1_mini)
+#
+# Key settings:
+#   color_depth: 8    8-bit colour reduces SPI bandwidth and RAM usage.
+#                     Increase to 16 for richer colour if heap allows.
+#   invert_colors: true  Required for ST7789V panels; without it all colours
+#                        appear inverted (white background, coloured text).
+#   spi_mode: mode3   Clock polarity/phase combination expected by ST7789V.
+#   mirror_x: true    Corrects the left/right flip for this panel orientation.
+#
+# Display lambda (runs every update_interval = 100 ms):
+#   Implements a three-step state machine:
+#     1. Auto-dismiss an alert whose age exceeds ALERT_DURATION_MS.
+#     2. If alert active → render blinking overlay and return early.
+#     3. Otherwise → render the current time from Home Assistant.
+# ------------------------------------------------------------------------------
+display:
   - platform: mipi_spi
-    model: st7789v
-    data_rate: 40Mhz
-    draw_rounding: 1
-    update_interval: 100ms
-    spi_id: spihwd
-    dimensions: {height: 240, width: 240, offset_height: 0, offset_width: 0}
-    # use_axis_flips: true
+    model:           st7789v
+    spi_id:          spihwd
+    dc_pin:          GPIO00
+    reset_pin:       GPIO02
+    dimensions:      {height: 240, width: 240, offset_height: 0, offset_width: 0}
     transform:
-      swap_xy: false
-      mirror_x: true
+      swap_xy:  false
+      mirror_x: true   # Flip horizontally to match physical panel orientation.
       mirror_y: false
-    invert_colors: true
-    dc_pin: GPIO00
-    reset_pin: GPIO02
-    color_depth: 8
-    spi_mode: mode3
+    color_depth:     8
+    spi_mode:        mode3
+    invert_colors:   true
+    data_rate:       40Mhz
+    draw_rounding:   1
+    update_interval: 100ms
     lambda: |-
-      const int cx = it.get_width() / 2;
-      const int cy = it.get_height() / 2;
-      uint32_t current_time = millis();
+      // -----------------------------------------------------------------------
+      // Display rendering lambda — invoked every update_interval (100 ms).
+      //
+      // Coordinate system:
+      //   (cx, cy) is computed from actual panel dimensions so the layout
+      //   remains correct if dimensions or offsets are adjusted.
+      //
+      // Alert blink timing:
+      //   (millis() % 2000) < 1000 produces a 1 Hz square wave:
+      //     Phase A (0–999 ms):    coloured background + message text.
+      //     Phase B (1000–1999 ms): black background + white message text.
+      //   The contrast between phases creates a clear visual "blink".
+      //
+      // Alert auto-dismiss:
+      //   Alerts are cleared after ALERT_DURATION_MS.  The check runs at the
+      //   top of every frame so the transition back to the clock is seamless.
+      // -----------------------------------------------------------------------
+
+      const int      cx               = it.get_width()  / 2;
+      const int      cy               = it.get_height() / 2;
+      const uint32_t ALERT_DURATION_MS = id(alert_duration_ms);  // Configurable via HA service call.
+
+      uint32_t current_time  = millis();
       uint32_t alert_elapsed = current_time - id(alert_start_time);
 
-      // Clear alert if 5000ms (5 seconds) have elapsed
-      if (id(alert_active) && alert_elapsed >= 5000) {
+      // --- Step 1: Auto-dismiss expired alert --------------------------------
+      if (id(alert_active) && alert_elapsed >= ALERT_DURATION_MS) {
         id(alert_active) = false;
       }
 
-      // Render yellow alert if active
+      // --- Step 2: Render alert overlay (if active) --------------------------
       if (id(alert_active)) {
-        if ((current_time%2000) < 1000) {  // Blink every 500ms
-          it.fill(Color(id(alert_color_r), id(alert_color_g), id(alert_color_b)));  // Custom color background
-          if (id(alert_font_black)) {
-            it.printf(cx, cy, id(alert_font), Color(0, 0, 0), TextAlign::CENTER, id(alert_text).c_str());
-          }
-          else {
-            it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER, id(alert_text).c_str());
-          }
-          return;
+        bool phase_a = (current_time % 2000) < 1000;  // true = coloured phase.
+        if (phase_a) {
+          // Coloured-background phase: use caller-supplied RGB values.
+          it.fill(Color(id(alert_color_r), id(alert_color_g), id(alert_color_b)));
+          Color text_color = id(alert_font_black) ? Color(0, 0, 0) : Color(255, 255, 255);
+          it.printf(cx, cy, id(alert_font), text_color, TextAlign::CENTER,
+                    id(alert_text).c_str());
+        } else {
+          // Black-background phase: provides the visual blink contrast.
+          it.fill(Color(0, 0, 0));
+          it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER,
+                    id(alert_text).c_str());
         }
-        else {
-          it.fill(Color(0, 0, 0));  // black background
-          it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER, id(alert_text).c_str());
-          return;
-        }
+        return;  // Skip clock rendering while an alert is active.
       }
 
-      // Normal clock display
-      it.fill(Color(0, 0, 0));  // Black background
+      // --- Step 3: Normal clock display --------------------------------------
+      it.fill(Color(0, 0, 0));  // Black background.
       auto now = id(ha_time).now();
       if (!now.is_valid()) {
+        // Time not yet synchronised — shown briefly after boot.
         it.printf(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER, "Syncing");
         return;
       }
 
-      it.strftime(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER, "%H:%M:%S", now);
+      it.strftime(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+                  "%H:%M:%S", now);
