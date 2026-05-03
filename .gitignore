@@ -1,3 +1,7 @@
+# ESPHome secrets — NEVER commit this file
+secrets.yaml
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -5,8 +9,12 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# OS / IDE
 .DS_Store
 .vscode/
+
+# Misc
 *.log
 *.bin
 *.zip

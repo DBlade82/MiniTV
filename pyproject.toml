@@ -2,7 +2,7 @@
 name = "minitv"
 version = "0.1.0"
 description = "GeekMagic Mini-TV ESPHome configuration repository"
-authors = ["GitHub Copilot <noreply@example.com>"]
+authors = ["Marcel Pinnow <DBlade82@gmail.com>"]
 readme = "README.md"
 requires-python = ">=3.10"
 

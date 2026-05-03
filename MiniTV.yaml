@@ -126,7 +126,7 @@ wifi:
     dns2:      8.8.8.8    # Google fallback.
   ap:
     ssid: "MiniTV Recovery"
-    password: !secret wifi_recover_password  # TODO: move to !secret before production use.
+    password: !secret wifi_recover_password
 
 # Redirects browsers that connect to the fallback AP to a Wi-Fi config page.
 captive_portal:
