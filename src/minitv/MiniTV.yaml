@@ -434,9 +434,13 @@ font:
   - file: "gfonts://Roboto Mono"
     id: alert_font
     size: 32  # Matched to clock_font for visual consistency.
-  - file: "gfonts://Roboto Mono"
+  - file:
+      type: gfonts
+      family: "Roboto"
+      weight: black
     id: icon_font
-    size: 26  # Day-countdown number, drawn on a solid contrast badge over each icon.
+    size: 30  # Bold, high-bpp digit for max legibility directly on the icon.
+    bpp: 4
 
 # ------------------------------------------------------------------------------
 # Images
@@ -595,21 +599,20 @@ display:
 
       // --- Waste-collection icons ---------------------------------------------
       // Each entry pairs the remaining-days countdown (from the periodic HA
-      // calendar poll) with the tint colour for that waste type, plus a
-      // solid badge/text colour pair so the day-count digit stays legible
-      // regardless of where it lands on the (busy) icon artwork.
+      // calendar poll) with the tint colour for that waste type and a
+      // complementary colour for the day-count digit, drawn directly on the
+      // icon (no badge — a bold, high-bpp font keeps it legible on its own).
       // days == -1 means "no collection within 3 days" → icon hidden.
       struct WasteIcon {
         int days;
         Color color;
-        Color badge_color;  // Solid disc drawn behind the digit for contrast.
-        Color text_color;   // Digit colour, chosen to contrast badge_color.
+        Color number_color;
       };
       WasteIcon icons[] = {
-          {id(days_restmuell),        Color(255, 255, 255), Color(0, 0, 0),       Color(255, 255, 255)}, // Restmüll: white icon, black badge
-          {id(days_leichtverpackung), Color(255, 210, 0),   Color(0, 0, 0),       Color(255, 255, 255)}, // Leichtverpackung: yellow icon, black badge
-          {id(days_glas),             Color(40, 110, 255),  Color(255, 255, 255), Color(0, 0, 0)},       // Glas: blue icon, white badge
-          {id(days_papier),           Color(30, 180, 60),   Color(255, 255, 255), Color(0, 0, 0)},       // Papier: green icon, white badge
+          {id(days_restmuell),        Color(255, 255, 255), Color(0, 0, 0)},       // Restmüll: white icon, black digit
+          {id(days_leichtverpackung), Color(255, 210, 0),   Color(0, 0, 0)},       // Leichtverpackung: yellow icon, black digit
+          {id(days_glas),             Color(40, 110, 255),  Color(255, 165, 0)},   // Glas: blue icon, orange digit (complementary)
+          {id(days_papier),           Color(30, 180, 60),   Color(255, 255, 255)}, // Papier: green icon, white digit
       };
 
       // Blink phase: 1s on / 1s off (0.5 Hz) on the last day before
@@ -632,13 +635,9 @@ display:
             int x = start_x + slot * (ICON_SIZE + ICON_GAP);
             int y = ICON_Y - ICON_SIZE / 2;
             it.image(x, y, id(trash_icon), icon.color);
-            int badge_cx = x + ICON_SIZE / 2;
-            int badge_cy = ICON_Y;
-            int badge_radius = ICON_SIZE * 9 / 40;  // ~12px on a 52px icon.
-            it.filled_circle(badge_cx, badge_cy, badge_radius, icon.badge_color);
             char days_str[4];
             snprintf(days_str, sizeof(days_str), "%d", icon.days);
-            it.printf(badge_cx, badge_cy, id(icon_font), icon.text_color,
+            it.printf(x + ICON_SIZE / 2, ICON_Y, id(icon_font), icon.number_color,
                       TextAlign::CENTER, days_str);
           }
           slot++;  // Keep consistent horizontal spacing even while blinking off.
