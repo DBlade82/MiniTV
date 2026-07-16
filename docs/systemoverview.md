@@ -33,8 +33,10 @@ C4Context
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| ESPHome config | `src/minitv/MiniTV.yaml` | Wi-Fi, API, OTA, display, backlight, fonts, alert globals, waste-calendar poll |
-| Waste icon asset | `src/minitv/Trashcan.png` | Trash-can glyph, tinted per waste type at draw time |
+| Shared ESPHome package | `src/common/minitv-common.yaml` | Wi-Fi, API, OTA, display, backlight, fonts, alert globals, waste-calendar poll — shared by every device via ESPHome `packages:` |
+| Waste icon asset | `src/common/Trashcan.png` | Trash-can glyph, tinted per waste type at draw time (shared) |
+| Device config (Kristallwürfel) | `src/minitv/MiniTV.yaml` | Per-device substitutions only: name, static IP, mirror_x, HA/calendar overrides |
+| New-device template | `src/templates/new-device.yaml.example` | Starting point for additional MiniTV units |
 | Docs | `docs/` | Requirements, masterplan, system overview |
 | Repo package | `src/minitv/` | Python package stub for repository tooling |
 

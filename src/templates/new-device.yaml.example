@@ -1,0 +1,43 @@
+# ==============================================================================
+# MiniTV — New device template
+# ==============================================================================
+#
+# Copy this file to src/<device-folder>/<DeviceName>.yaml to bring a new
+# GeekMagic Mini-TV style unit online. All shared hardware wiring, display
+# rendering, waste-calendar polling and alert logic lives in
+# src/common/minitv-common.yaml — you only need to fill in the values below
+# that are unique to the new device, then add a secrets.yaml next to it
+# (see src/minitv/MiniTV.yaml's Quickstart comment for the required keys;
+# secrets.yaml is gitignored and must never be committed).
+#
+# Steps:
+#   1. mkdir src/<device-folder>
+#   2. Copy this file to src/<device-folder>/<DeviceName>.yaml
+#   3. Fill in the substitutions below.
+#   4. Create src/<device-folder>/secrets.yaml with wifi_ssid, wifi_password,
+#      wifi_recover_password and ha_token.
+#   5. Flash:  esphome run src/<device-folder>/<DeviceName>.yaml
+# ==============================================================================
+
+substitutions:
+  # mDNS hostname / HA entity-id prefix. Lowercase, no spaces (e.g. "minitv2").
+  device_name:         "minitv-CHANGE-ME"
+
+  # Human-readable label shown in the HA device registry.
+  friendly_name:        "GeekMagic Mini-TV CHANGE-ME"
+
+  # Must be unique on the network and outside your router's DHCP range.
+  static_ip:            "192.168.223.CHANGE-ME"
+
+  # "false" for a plain flat-panel enclosure (no image flip needed).
+  # "true" only if this unit is mounted behind a mirrored/prism cube like
+  # the original Kristallwürfel.
+  mirror_x:             "false"
+
+  # Usually the same Home Assistant instance for every device; change only
+  # if this unit should read a different calendar or point at a different HA.
+  ha_base_url:          "http://192.168.223.101"
+  ha_calendar_entity:   "calendar.ics"
+
+packages:
+  common: !include ../common/minitv-common.yaml

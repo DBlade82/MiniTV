@@ -1,0 +1,663 @@
+# ==============================================================================
+# MiniTV — Shared ESPHome package
+# ==============================================================================
+#
+# This package holds every piece of configuration that is identical across
+# all GeekMagic Mini-TV style devices (same display driver, same wiring,
+# same clock/date/waste-icon logic). A per-device YAML file provides only
+# the handful of values that differ between physical units — see
+# `src/minitv/MiniTV.yaml` for the reference device and
+# `src/templates/new-device.yaml.example` for a documented starting point
+# when adding another device.
+#
+# Substitutions consumed by this package (set them in the device file that
+# includes it — any value given there overrides the default below):
+#   device_name        mDNS hostname / entity-id prefix (lowercase, no spaces).
+#   friendly_name       Human-readable label shown in the HA device registry.
+#   static_ip / gateway_ip / subnet_mask
+#                       Static network configuration for this device.
+#   mirror_x            "true" for panels mounted behind a mirrored/prism
+#                       enclosure (e.g. the Kristallwürfel cube), "false" for
+#                       a plain flat panel.
+#   ha_base_url         Home Assistant base URL, reachable from the device
+#                       (plain HTTP, no TLS).
+#   ha_calendar_entity  HA calendar entity_id holding the waste-collection
+#                       schedule.
+#   trashcan_icon_path  Path (relative to the device YAML's directory) to the
+#                       shared Trashcan.png asset.
+# ==============================================================================
+
+substitutions:
+  device_name:        "minitv"
+  friendly_name:       "GeekMagic Mini-TV"
+  static_ip:           "192.168.223.79"
+  gateway_ip:          "192.168.223.1"
+  subnet_mask:         "255.255.255.0"
+  mirror_x:            "true"
+  ha_base_url:         "http://192.168.223.101"
+  ha_calendar_entity:  "calendar.ics"
+  trashcan_icon_path:  "../common/Trashcan.png"
+
+# ------------------------------------------------------------------------------
+# Core ESPHome identity
+#
+# name/friendly_name are expected to be set per-device (via substitutions in
+# the including file). on_boot lives here since it's identical everywhere:
+# force the backlight fully on at startup, otherwise the panel may stay dark
+# because the light component tries to restore its previous state before the
+# PWM output is ready.
+# ------------------------------------------------------------------------------
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: 800  # Run before most other components initialise.
+    then:
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
+
+# ------------------------------------------------------------------------------
+# Platform: ESP8266 / d1_mini
+#
+# The GeekMagic Mini-TV uses an ESP-12F module wired identically to a Wemos
+# d1_mini, so the board target matches exactly across every unit built so
+# far. Override this key in the device file if a future unit uses different
+# hardware.
+# ------------------------------------------------------------------------------
+esp8266:
+  board: d1_mini
+
+# ------------------------------------------------------------------------------
+# Global variables — Alert state machine
+#
+# These globals carry data from the HA service call into the display lambda,
+# which runs on a separate update timer and therefore cannot receive arguments
+# directly.
+#
+# Variables:
+#   alert_color_r (int):       Red channel (0–255) of the alert background.
+#   alert_color_g (int):       Green channel (0–255) of the alert background.
+#   alert_color_b (int):       Blue channel (0–255) of the alert background.
+#   alert_font_black (bool):   Render text in black instead of white.
+#                              Use for light-coloured backgrounds so text is
+#                              still legible.
+#   alert_active (bool):       True while an alert is being displayed.
+#   alert_text (std::string):  The message shown in the alert overlay.
+#   alert_start_time (uint32_t): millis() timestamp when the alert fired,
+#                              used to auto-dismiss after ALERT_DURATION_MS.
+# ------------------------------------------------------------------------------
+globals:
+  - id: alert_color_r
+    type: int
+    restore_value: no
+    initial_value: '200'   # Default: amber-orange tint.
+  - id: alert_color_g
+    type: int
+    restore_value: no
+    initial_value: '255'
+  - id: alert_color_b
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: alert_font_black
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: alert_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: alert_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: alert_start_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: alert_duration_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '5000'  # Default: 5-second display window.
+
+  # ------------------------------------------------------------------------
+  # Waste-collection countdown (days remaining until next collection).
+  #
+  # Populated by the periodic Home Assistant calendar poll (see the
+  # http_request/interval section below). -1 means "no collection of this
+  # type within the next 3 days", so its icon stays hidden.
+  # ------------------------------------------------------------------------
+  - id: days_restmuell
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_leichtverpackung
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_glas
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_papier
+    type: int
+    restore_value: no
+    initial_value: '-1'
+
+# ------------------------------------------------------------------------------
+# Wi-Fi
+#
+# Credentials are read from secrets.yaml (never commit that file to VCS).
+# A static IP ensures Home Assistant can always reach the device at a
+# predictable address regardless of DHCP lease changes; set static_ip (and
+# gateway_ip/subnet_mask if needed) per-device via substitutions.
+#
+# Fallback AP ("<friendly_name> Recovery"):
+#   Activated automatically when the primary network is unreachable.
+#   Combine with captive_portal below so any connected browser is redirected
+#   to the Wi-Fi config page.
+# ------------------------------------------------------------------------------
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2  # Reject weaker authentication modes.
+  manual_ip:
+    static_ip: ${static_ip}
+    gateway:   ${gateway_ip}
+    subnet:    ${subnet_mask}
+    dns1:      9.9.9.9    # Quad9 primary.
+    dns2:      8.8.8.8    # Google fallback.
+  ap:
+    ssid: "${friendly_name} Recovery"
+    password: !secret wifi_recover_password
+
+# Redirects browsers that connect to the fallback AP to a Wi-Fi config page.
+captive_portal:
+
+# ------------------------------------------------------------------------------
+# Web server
+#
+# Exposes a lightweight REST API and management UI on port 80.
+# Useful for local debugging and inspecting sensor state.
+# Consider disabling (remove this block) in production to reduce attack surface
+# and free ~10 KB of RAM.
+# ------------------------------------------------------------------------------
+web_server:
+  port: 80
+
+# ------------------------------------------------------------------------------
+# Home Assistant native API
+#
+# Enables the encrypted ESPHome ↔ HA integration channel.
+# Custom services declared here appear as callable services inside HA and can
+# be triggered from automations, scripts, or the Developer Tools panel.
+# Since the HA service name is namespaced by device_name
+# (esphome.<device_name>_trigger_alert), every device gets its own distinct
+# service automatically.
+#
+# Service: trigger_alert
+#   Activates a full-screen overlay message on the display for 5 seconds.
+#   The overlay blinks at 1 Hz (500 ms coloured / 500 ms black) to draw
+#   attention, then automatically dismisses.
+#
+#   Args:
+#     alert_message (string):    Text to display on screen (keep it short —
+#                                one line fits ~10 characters at size 32).
+#     alert_color_r (int):       Red component of background colour (0–255).
+#     alert_color_g (int):       Green component of background colour (0–255).
+#     alert_color_b (int):       Blue component of background colour (0–255).
+#     alert_font_black (bool):   Pass true for dark text on bright backgrounds.
+# ------------------------------------------------------------------------------
+api:
+  services:
+    - service: trigger_alert
+      variables:
+        alert_message:    string
+        alert_color_r:    int
+        alert_color_g:    int
+        alert_color_b:    int
+        alert_font_black: bool
+        alert_duration_ms: int
+      then:
+        # Atomically update all alert state before the next display refresh.
+        - globals.set:
+            id: alert_text
+            value: !lambda 'return alert_message;'
+        - globals.set:
+            id: alert_active
+            value: 'true'
+        - globals.set:
+            id: alert_start_time
+            value: !lambda 'return millis();'
+        - globals.set:
+            id: alert_color_r
+            value: !lambda 'return alert_color_r;'
+        - globals.set:
+            id: alert_color_g
+            value: !lambda 'return alert_color_g;'
+        - globals.set:
+            id: alert_color_b
+            value: !lambda 'return alert_color_b;'
+        - globals.set:
+            id: alert_font_black
+            value: !lambda 'return alert_font_black;'
+        - globals.set:
+            id: alert_duration_ms
+            value: !lambda 'return (alert_duration_ms > 0) ? (uint32_t)alert_duration_ms : 5000;'
+
+# ------------------------------------------------------------------------------
+# OTA (Over-The-Air) updates
+#
+# Allows flashing new firmware over Wi-Fi without a USB cable.
+# Credentials are managed by the ESPHome dashboard.
+# ------------------------------------------------------------------------------
+ota:
+  - platform: esphome
+
+# ------------------------------------------------------------------------------
+# Logger
+#
+# Streams debug output to the serial port and to the HA log panel.
+# Remove this block (or set level: NONE) in production to recover ~8 KB RAM.
+# ------------------------------------------------------------------------------
+logger:
+
+# ------------------------------------------------------------------------------
+# Time source
+#
+# Synchronises the device clock from Home Assistant over the native API.
+# The display lambda checks now.is_valid() before using the time value so
+# the "Syncing" placeholder is shown during the brief post-boot window.
+# ------------------------------------------------------------------------------
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# ------------------------------------------------------------------------------
+# JSON support
+#
+# Provides the ArduinoJson bindings used to parse the Home Assistant calendar
+# API response in the waste-collection poll below.
+# ------------------------------------------------------------------------------
+json:
+
+# ------------------------------------------------------------------------------
+# HTTP client — used to poll the Home Assistant Calendar REST API
+#
+# Home Assistant is reached over plain HTTP on the local network, so TLS/SSL
+# support is disabled entirely to save flash on the ESP8266.
+# ------------------------------------------------------------------------------
+http_request:
+  id: http_client
+  useragent: ${device_name}
+  timeout: 10s
+  verify_ssl: false               # Required on non-ESP32 platforms.
+  esp8266_disable_ssl_support: true  # No HTTPS needed; saves flash.
+
+# ------------------------------------------------------------------------------
+# Waste-collection calendar poll
+#
+# Every 30 minutes (and once ~20s after boot), fetch the next few days of
+# events from the Home Assistant calendar entity holding the waste schedule
+# (ha_calendar_entity), and update the days_* globals used by the display
+# lambda.
+#
+# The request window is "yesterday" through "+5 days" (all-day events are
+# date-only, so a little slack absorbs any timezone rounding). Only events
+# within 0–3 days from today are kept; everything else leaves the
+# corresponding global at -1 (icon hidden).
+# ------------------------------------------------------------------------------
+interval:
+  - interval: 30min
+    startup_delay: 20s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ha_time).now().is_valid();'
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  auto now = id(ha_time).now();
+                  time_t start_epoch = now.timestamp - 86400;       // yesterday
+                  time_t end_epoch   = now.timestamp + 5 * 86400;   // +5 days
+                  ESPTime start_t = ESPTime::from_epoch_local(start_epoch);
+                  ESPTime end_t   = ESPTime::from_epoch_local(end_epoch);
+                  std::string start_str = start_t.strftime("%Y-%m-%dT00:00:00");
+                  std::string end_str   = end_t.strftime("%Y-%m-%dT00:00:00");
+                  return std::string("${ha_base_url}/api/calendars/${ha_calendar_entity}?start=") +
+                         start_str + "&end=" + end_str;
+                request_headers:
+                  Authorization: !secret ha_token
+                capture_response: true
+                on_response:
+                  then:
+                    - lambda: |-
+                        static const char *const TAG = "waste_cal";
+                        if (response->status_code != 200) {
+                          ESP_LOGW(TAG, "HTTP %d fetching waste calendar", response->status_code);
+                          return;
+                        }
+
+                        // Howard Hinnant's days-from-civil algorithm — converts a
+                        // (year, month, day) date into a day count, so two dates
+                        // can be subtracted to get "days until" without dealing
+                        // with months/leap-years by hand.
+                        auto days_from_civil = [](int y, int m, int d) -> long {
+                          y -= m <= 2;
+                          long era = (y >= 0 ? y : y - 399) / 400;
+                          unsigned yoe = (unsigned) (y - era * 400);
+                          unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+                          unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+                          return era * 146097 + (long) doe - 719468;
+                        };
+
+                        auto now = id(ha_time).now();
+                        long today_days = days_from_civil(now.year, now.month, now.day_of_month);
+
+                        // Reset all categories before parsing; anything not found
+                        // in this response has no collection within the window.
+                        id(days_restmuell) = -1;
+                        id(days_leichtverpackung) = -1;
+                        id(days_glas) = -1;
+                        id(days_papier) = -1;
+
+                        JsonDocument doc;
+                        DeserializationError json_err = deserializeJson(doc, body);
+                        if (json_err) {
+                          ESP_LOGW(TAG, "Waste calendar JSON parse failed: %s", json_err.c_str());
+                          return;
+                        }
+
+                        for (JsonObject ev : doc.as<JsonArray>()) {
+                          std::string date_str;
+                          if (ev["start"]["date"].is<const char *>()) {
+                            date_str = ev["start"]["date"].as<std::string>();
+                          } else if (ev["start"]["dateTime"].is<const char *>()) {
+                            date_str = ev["start"]["dateTime"].as<std::string>().substr(0, 10);
+                          } else {
+                            continue;
+                          }
+
+                          int y, mo, da;
+                          if (sscanf(date_str.c_str(), "%d-%d-%d", &y, &mo, &da) != 3) continue;
+                          int diff = (int) (days_from_civil(y, mo, da) - today_days);
+                          if (diff < 0 || diff > 3) continue;
+
+                          std::string summary = ev["summary"] | "";
+                          int *slot = nullptr;
+                          if (summary.find("Restmüll") != std::string::npos) {
+                            slot = &id(days_restmuell);
+                          } else if (summary.find("Leichtverpackung") != std::string::npos) {
+                            slot = &id(days_leichtverpackung);
+                          } else if (summary.find("Glas") != std::string::npos) {
+                            slot = &id(days_glas);
+                          } else if (summary.find("Papier") != std::string::npos) {
+                            slot = &id(days_papier);
+                          }
+
+                          if (slot != nullptr && (*slot == -1 || diff < *slot)) {
+                            *slot = diff;
+                          }
+                        }
+                on_error:
+                  then:
+                    - logger.log:
+                        tag: "waste_cal"
+                        format: "Waste calendar HTTP request failed (network error)"
+
+# ------------------------------------------------------------------------------
+# SPI bus — Hardware SPI on ESP8266
+#
+# Pin mapping (verified for GeekMagic Mini-TV):
+#   CLK  → GPIO14  (D5 on d1_mini)
+#   MOSI → GPIO13  (D7 on d1_mini)
+#
+# interface: hardware uses the ESP8266's dedicated SPI peripheral for maximum
+# throughput.  Do not switch to software SPI unless debugging pin conflicts.
+# ------------------------------------------------------------------------------
+spi:
+  id:        spihwd
+  interface: hardware
+  clk_pin:   GPIO14
+  mosi_pin:  GPIO13
+
+# ------------------------------------------------------------------------------
+# Fonts
+#
+# Fonts prefixed with "gfonts://" are downloaded from Google Fonts at compile
+# time and embedded in the firmware binary.
+#
+# Both clock and alert use the same typeface and size so the display stays
+# visually consistent across states.  Increase size cautiously — larger glyphs
+# consume proportionally more flash and heap on the ESP8266.
+# ------------------------------------------------------------------------------
+font:
+  - file: "gfonts://Roboto Mono"
+    id: clock_font
+    size: 32  # Fits "HH:MM:SS" / "DD-MM-YYYY" centred on a 240px-wide panel.
+  - file: "gfonts://Roboto Mono"
+    id: alert_font
+    size: 32  # Matched to clock_font for visual consistency.
+  - file:
+      type: gfonts
+      family: "Roboto"
+      weight: black
+    id: icon_font
+    size: 30  # Bold, high-bpp digit for max legibility directly on the icon.
+    bpp: 4
+
+# ------------------------------------------------------------------------------
+# Images
+#
+# trash_icon: single trash-can glyph, tinted per waste type at draw time
+# (BINARY + chroma_key transparency lets it.image() recolour the opaque
+# pixels while skipping the transparent background entirely). The source
+# file lives in src/common/ and is shared by every device; trashcan_icon_path
+# is expressed relative to the including device YAML's own directory.
+# ------------------------------------------------------------------------------
+image:
+  - platform: file
+    file: ${trashcan_icon_path}
+    id: trash_icon
+    type: BINARY
+    transparency: chroma_key
+    resize: 52x52  # Keep in sync with ICON_SIZE in the display lambda below.
+
+# ------------------------------------------------------------------------------
+# Backlight — PWM output
+#
+# The panel backlight is driven through a MOSFET on GPIO5 (D1 on d1_mini).
+# inverted: true because the MOSFET switches the backlight OFF at high duty.
+#
+# The light component below wraps this raw output and exposes a named entity
+# to Home Assistant so brightness can be adjusted from the UI or automations.
+# ------------------------------------------------------------------------------
+output:
+  - platform: esp8266_pwm
+    id:        bl_pwm
+    pin:       GPIO5
+    frequency: 20000 Hz  # 20 kHz is above the audible threshold; no coil whine.
+    inverted:  true      # Active-low MOSFET gate logic.
+
+light:
+  - platform: monochromatic
+    id:                      backlight
+    name:                    "${friendly_name} Backlight"
+    output:                  bl_pwm
+    default_transition_length: 0s   # Instant transitions; no fading.
+    restore_mode:            ALWAYS_ON  # Re-light the panel after a power cycle.
+
+# ------------------------------------------------------------------------------
+# Display — ST7789V 240×240 SPI panel (MIPI interface)
+#
+# Pin mapping (verified for GeekMagic Mini-TV):
+#   DC    → GPIO0  (D3 on d1_mini) — toggles between Data and Command mode.
+#   RESET → GPIO2  (D4 on d1_mini)
+#
+# Key settings:
+#   color_depth: 8    8-bit colour reduces SPI bandwidth and RAM usage.
+#                     Increase to 16 for richer colour if heap allows.
+#   invert_colors: true  Required for ST7789V panels; without it all colours
+#                        appear inverted (white background, coloured text).
+#   spi_mode: mode3   Clock polarity/phase combination expected by ST7789V.
+#   mirror_x: ${mirror_x}  Corrects the left/right flip introduced by some
+#                          enclosures (e.g. the Kristallwürfel cube's mirrored
+#                          prism front). Set to "false" per-device for a
+#                          plain flat panel that needs no correction.
+#
+# Display lambda (runs every update_interval = 100 ms):
+#   Implements a three-step state machine:
+#     1. Auto-dismiss an alert whose age exceeds ALERT_DURATION_MS.
+#     2. If alert active → render blinking overlay and return early.
+#     3. Otherwise → render the current time (top line) and date DD-MM-YYYY
+#        (second line) from Home Assistant, plus waste-collection reminder
+#        icons along the bottom (see the http_request/interval section
+#        above for how the countdown values are fetched).
+# ------------------------------------------------------------------------------
+display:
+  - platform: mipi_spi
+    model:           st7789v
+    spi_id:          spihwd
+    dc_pin:          GPIO00
+    reset_pin:       GPIO02
+    dimensions:      {height: 240, width: 240, offset_height: 0, offset_width: 0}
+    transform:
+      swap_xy:  false
+      mirror_x: ${mirror_x}
+      mirror_y: false
+    color_depth:     8
+    spi_mode:        mode3
+    invert_colors:   true
+    data_rate:       40Mhz
+    draw_rounding:   1
+    update_interval: 100ms
+    lambda: |-
+      // -----------------------------------------------------------------------
+      // Display rendering lambda — invoked every update_interval (100 ms).
+      //
+      // Coordinate system:
+      //   (cx, cy) is computed from actual panel dimensions so the layout
+      //   remains correct if dimensions or offsets are adjusted.
+      //
+      // Alert blink timing:
+      //   (millis() % 2000) < 1000 produces a 1 Hz square wave:
+      //     Phase A (0–999 ms):    coloured background + message text.
+      //     Phase B (1000–1999 ms): black background + white message text.
+      //   The contrast between phases creates a clear visual "blink".
+      //
+      // Alert auto-dismiss:
+      //   Alerts are cleared after ALERT_DURATION_MS.  The check runs at the
+      //   top of every frame so the transition back to the clock is seamless.
+      // -----------------------------------------------------------------------
+
+      const int      cx               = it.get_width()  / 2;
+      const int      cy               = it.get_height() / 2;
+      const uint32_t ALERT_DURATION_MS = id(alert_duration_ms);  // Configurable via HA service call.
+
+      uint32_t current_time  = millis();
+      uint32_t alert_elapsed = current_time - id(alert_start_time);
+
+      // --- Step 1: Auto-dismiss expired alert --------------------------------
+      if (id(alert_active) && alert_elapsed >= ALERT_DURATION_MS) {
+        id(alert_active) = false;
+      }
+
+      // --- Step 2: Render alert overlay (if active) --------------------------
+      if (id(alert_active)) {
+        bool phase_a = (current_time % 2000) < 1000;  // true = coloured phase.
+        if (phase_a) {
+          // Coloured-background phase: use caller-supplied RGB values.
+          it.fill(Color(id(alert_color_r), id(alert_color_g), id(alert_color_b)));
+          Color text_color = id(alert_font_black) ? Color(0, 0, 0) : Color(255, 255, 255);
+          it.printf(cx, cy, id(alert_font), text_color, TextAlign::CENTER,
+                    id(alert_text).c_str());
+        } else {
+          // Black-background phase: provides the visual blink contrast.
+          it.fill(Color(0, 0, 0));
+          it.printf(cx, cy, id(alert_font), Color(255, 255, 255), TextAlign::CENTER,
+                    id(alert_text).c_str());
+        }
+        return;  // Skip clock rendering while an alert is active.
+      }
+
+      // --- Step 3: Normal clock display --------------------------------------
+      // Layout: time and date near the top; waste-collection icons along the
+      // bottom. The weekday name is no longer shown, freeing vertical space
+      // for the icon row.
+      const int TIME_Y = it.get_height() * 25 / 100;  // ~60px on a 240px panel.
+      const int DATE_Y = it.get_height() * 42 / 100;  // ~100px on a 240px panel.
+      const int ICON_Y = it.get_height() * 79 / 100;  // ~190px on a 240px panel.
+      const int ICON_SIZE = 52;  // Must match the image: resize dimensions above.
+      const int ICON_GAP  = 8;   // 4 icons: 4*52 + 3*8 = 232px, fits a 240px-wide panel.
+
+      it.fill(Color(0, 0, 0));  // Black background.
+      auto now = id(ha_time).now();
+      if (!now.is_valid()) {
+        // Time not yet synchronised — shown briefly after boot.
+        it.printf(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER, "Syncing");
+        return;
+      }
+
+      // Time — top line.
+      it.strftime(cx, TIME_Y, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+                  "%H:%M:%S", now);
+
+      // Date — second line.
+      it.strftime(cx, DATE_Y, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+                  "%d-%m-%Y", now);
+
+      // --- Waste-collection icons ---------------------------------------------
+      // Each entry pairs the remaining-days countdown (from the periodic HA
+      // calendar poll) with the tint colour for that waste type. The
+      // day-count digit's colour is computed at draw time (not hand-picked
+      // per type) to guarantee maximum contrast against whatever icon colour
+      // it sits on: relative luminance is computed per ITU-R BT.709, and
+      // black or white — whichever is farther away on the luminance scale —
+      // is chosen. days == -1 means "no collection within 3 days" → icon
+      // hidden.
+      auto max_contrast_text_color = [](Color bg) -> Color {
+        float luminance = 0.2126f * bg.r + 0.7152f * bg.g + 0.0722f * bg.b;
+        return luminance > 127.5f ? Color(0, 0, 0) : Color(255, 255, 255);
+      };
+
+      struct WasteIcon {
+        int days;
+        Color color;
+      };
+      WasteIcon icons[] = {
+          {id(days_restmuell),        Color(255, 255, 255)}, // Restmüll: white
+          {id(days_leichtverpackung), Color(255, 210, 0)},   // Leichtverpackung: yellow
+          {id(days_glas),             Color(40, 110, 255)},  // Glas: blue
+          {id(days_papier),           Color(30, 180, 60)},   // Papier: green
+      };
+
+      // Blink phase: 1s on / 1s off (0.5 Hz) on the last day before
+      // collection and on collection day itself (days <= 1).
+      bool blink_visible = (millis() % 2000) < 1000;
+
+      int active_count = 0;
+      for (auto &icon : icons) {
+        if (icon.days >= 0 && icon.days <= 3) active_count++;
+      }
+
+      if (active_count > 0) {
+        int total_width = active_count * ICON_SIZE + (active_count - 1) * ICON_GAP;
+        int start_x = cx - total_width / 2;
+        int slot = 0;
+        for (auto &icon : icons) {
+          if (icon.days < 0 || icon.days > 3) continue;
+          bool should_blink = icon.days <= 1;
+          if (!should_blink || blink_visible) {
+            int x = start_x + slot * (ICON_SIZE + ICON_GAP);
+            int y = ICON_Y - ICON_SIZE / 2;
+            it.image(x, y, id(trash_icon), icon.color);
+            char days_str[4];
+            snprintf(days_str, sizeof(days_str), "%d", icon.days);
+            Color number_color = max_contrast_text_color(icon.color);
+            it.printf(x + ICON_SIZE / 2, ICON_Y, id(icon_font), number_color,
+                      TextAlign::CENTER, days_str);
+          }
+          slot++;  // Keep consistent horizontal spacing even while blinking off.
+        }
+      }

@@ -10,6 +10,7 @@
 | 4 | Display reliability and hardware troubleshooting | ✅ Done |
 | 5 | Documentation refresh, secrets audit, remote publish | ✅ Done |
 | 6 | Clock date display and waste-collection reminder icons | ✅ Done |
+| 7 | Modular multi-device ESPHome package structure | ✅ Done |
 
 ## Current Focus
 
@@ -28,7 +29,11 @@
 - Waste-collection icons added: device polls Home Assistant's Calendar REST API directly
   (`calendar.ics`) using a Long-Lived Access Token, computes days-until-collection per
   waste type, and renders tinted/blinking icons with a countdown number along the bottom
-  of the display; the weekday line was removed to make room.
+  of the display; the weekday line was removed to make room. Digit colour is now computed
+  at draw time (relative-luminance contrast) for maximum legibility on any icon tint.
+- Refactored into a modular ESPHome `packages:` structure (`src/common/minitv-common.yaml`)
+  so additional physical MiniTV units can be added via a slim per-device YAML
+  (see `src/templates/new-device.yaml.example`) without duplicating shared logic.
 
 ## Risks and Technical Debt
 

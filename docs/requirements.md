@@ -22,7 +22,7 @@ Implement a flash alert overlay that:
 - The display `lambda` (100 ms interval) auto-dismisses and blends back to clock rendering.
 
 **Traceability:**
-- `src/minitv/MiniTV.yaml` — `globals:`, `api:`, `display.lambda`
+- `src/common/minitv-common.yaml` — `globals:`, `api:`, `display.lambda`
 
 ## REQ-002: Clock Shows Date Alongside Time
 
@@ -37,7 +37,7 @@ Implement a flash alert overlay that:
   `ha_time` (Home Assistant) time source.
 
 **Traceability:**
-- `src/minitv/MiniTV.yaml` — `time:`, `display.lambda`
+- `src/common/minitv-common.yaml` — `time:`, `display.lambda`
 
 ## REQ-003: Waste-Collection Reminder Icons
 
@@ -72,6 +72,51 @@ Implement a flash alert overlay that:
   the 0.5 Hz blink when `days <= 1`.
 
 **Traceability:**
-- `src/minitv/MiniTV.yaml` — `substitutions:`, `globals:`, `json:`, `http_request:`, `interval:`,
+- `src/common/minitv-common.yaml` — `substitutions:`, `globals:`, `json:`, `http_request:`, `interval:`,
   `image:`, `font: (icon_font)`, `display.lambda`
-- `src/minitv/Trashcan.png`
+- `src/common/Trashcan.png`
+
+## REQ-004: Modular Multi-Device Configuration
+
+**Status:** Done
+
+**Description:**
+- Support running the same feature set (clock, waste icons, alerts) on multiple physical
+  MiniTV units without duplicating configuration.
+- Each device may need a different name, static IP, and whether the display needs to be
+  mirrored (e.g. the Kristallwürfel cube's mirrored prism front vs. a plain flat panel).
+- Adding a new device should not require touching shared logic.
+
+**Implementation Details:**
+- All hardware wiring, display rendering, waste-calendar polling and alert logic moved into
+  the ESPHome package `src/common/minitv-common.yaml`, parameterized via `substitutions:`
+  (`device_name`, `friendly_name`, `static_ip`, `gateway_ip`, `subnet_mask`, `mirror_x`,
+  `ha_base_url`, `ha_calendar_entity`, `trashcan_icon_path`).
+- Each device's YAML file (e.g. `src/minitv/MiniTV.yaml`) only declares its own
+  `substitutions:` and includes the shared package via `packages: common: !include
+  ../common/minitv-common.yaml`.
+- `src/templates/new-device.yaml.example` documents the steps to bring a new unit online
+  by copying the template into a new `src/<device-folder>/` and filling in its
+  substitutions.
+
+**Traceability:**
+- `src/common/minitv-common.yaml`
+- `src/minitv/MiniTV.yaml`
+- `src/templates/new-device.yaml.example`
+
+## REQ-005: Maximum-Contrast Waste-Icon Day Counter
+
+**Status:** Done
+
+**Description:**
+- The day-count digit overlaid on each waste-collection icon must remain legible regardless
+  of the icon's tint colour.
+
+**Implementation Details:**
+- The display `lambda` computes each digit's colour at draw time instead of using a
+  hand-picked colour per waste type: relative luminance of the icon colour is computed
+  (ITU-R BT.709 weights), and black or white — whichever is farther away on the luminance
+  scale — is chosen automatically, guaranteeing maximum contrast for any icon colour.
+
+**Traceability:**
+- `src/common/minitv-common.yaml` — `display.lambda` (`max_contrast_text_color`)

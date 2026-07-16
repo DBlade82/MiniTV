@@ -25,10 +25,23 @@ clock and customizable push-alert overlays triggered from Home Assistant.
 | Reset | GPIO2 (D4) |
 | Backlight | GPIO5 (D1), PWM |
 
+## Multi-device architecture
+
+All hardware wiring, display rendering, waste-calendar polling and alert logic shared by
+every MiniTV unit lives in the ESPHome [package](https://esphome.io/components/packages/)
+`src/common/minitv-common.yaml`. Each physical device gets its own small YAML file (e.g.
+`src/minitv/MiniTV.yaml`) that sets only the values unique to that unit — name, static IP,
+whether the enclosure needs the display mirrored, and (optionally) the Home Assistant/
+calendar to poll — then includes the shared package. To add another device, copy
+`src/templates/new-device.yaml.example` into a new `src/<device-folder>/` and fill in its
+substitutions; no changes to the shared package are needed.
+
 ## Installation
 
-1. Copy `src/minitv/MiniTV.yaml` into your ESPHome config folder (e.g. `/config/esphome/`).
-2. Create a `secrets.yaml` next to it (never commit this file):
+1. Copy `src/minitv/MiniTV.yaml` **and** `src/common/` into your ESPHome config folder
+   (e.g. `/config/esphome/`), preserving the relative path between them (the device file
+   references `../common/minitv-common.yaml` and `../common/Trashcan.png`).
+2. Create a `secrets.yaml` next to `MiniTV.yaml` (never commit this file):
    ```yaml
    wifi_ssid: "YourSSID"
    wifi_password: "YourPassword"
@@ -109,10 +122,15 @@ docs/
   requirements.md    # Tracked requirements with status
   systemoverview.md  # Architecture diagrams
   masterplan.md      # Milestones and risks
+src/common/
+  minitv-common.yaml # Shared ESPHome package: wiring, display, waste-calendar
+                      # polling and alert logic used by every device
+  Trashcan.png        # Waste-collection icon asset (shared)
 src/minitv/
-  MiniTV.yaml        # ESPHome configuration (primary deliverable)
-  Trashcan.png        # Waste-collection icon asset
+  MiniTV.yaml        # "Kristallwürfel" device config (name/IP/mirror_x only)
   __init__.py, __main__.py  # Python package stub
+src/templates/
+  new-device.yaml.example  # Copy this to bring a new MiniTV unit online
 tests/               # Placeholder tests
 .pre-commit-config.yaml
 ```
@@ -124,4 +142,4 @@ tests/               # Placeholder tests
   `.gitignore`.
 - Gitleaks runs on every commit via pre-commit to block accidental secret exposure.
 - The web server is enabled for local debugging; disable it in production by removing
-  the `web_server:` block from `src/minitv/MiniTV.yaml`.
+  the `web_server:` block from `src/common/minitv-common.yaml` (affects every device).
