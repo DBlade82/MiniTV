@@ -5,7 +5,9 @@ clock and customizable push-alert overlays triggered from Home Assistant.
 
 ## Features
 
-- Full-screen **clock** synchronized from Home Assistant.
+- Full-screen **clock** synchronized from Home Assistant, showing time and date.
+- **Waste-collection reminder icons** for Neuenbürg Glas/Restmüll/Papier/Leichtverpackungen,
+  read directly from a Home Assistant calendar over its REST API.
 - **Alert overlay** triggered via a Home Assistant service call — configurable text, color, duration, and blink rate.
 - 8-bit color, 240×240 ST7789V SPI panel with hardware SPI at 40 MHz.
 - OTA firmware updates via ESPHome dashboard.
@@ -31,8 +33,14 @@ clock and customizable push-alert overlays triggered from Home Assistant.
    wifi_ssid: "YourSSID"
    wifi_password: "YourPassword"
    wifi_recover_password: "RecoveryAPPassword"
+   # Home Assistant Long-Lived Access Token, used to poll the waste-collection
+   # calendar over the REST API. Include the "Bearer " prefix.
+   ha_token: "Bearer <your-long-lived-access-token>"
    ```
-3. Flash:
+3. Update the `substitutions:` block at the top of `MiniTV.yaml` if your Home Assistant
+   base URL or waste-collection calendar entity ID differ from the defaults
+   (`http://192.168.223.101` / `calendar.ics`).
+4. Flash:
    ```bash
    esphome run MiniTV.yaml
    ```
@@ -41,8 +49,17 @@ clock and customizable push-alert overlays triggered from Home Assistant.
 
 ### Clock mode
 
-The display shows `HH:MM:SS` centered on a black background once time is synced from Home
-Assistant. During the brief boot window it shows `Syncing`.
+The display shows `HH:MM:SS` and the date `DD-MM-YYYY` centered on a black background once
+time is synced from Home Assistant. During the brief boot window it shows `Syncing`.
+
+### Waste-collection icons
+
+Every 30 minutes the device polls Home Assistant's calendar REST API for upcoming waste
+collection events. Starting 3 days before a collection, a small trash-can icon appears
+along the bottom of the display, tinted by waste type (white = Restmüll, yellow =
+Leichtverpackung, blue = Glas, green = Papier) with the number of days remaining shown on
+the icon (`0` on collection day). On the last day before collection and on the collection
+day itself, the icon blinks at 0.5 Hz. Multiple icons can be shown at once.
 
 ### Trigger an alert from Home Assistant
 
@@ -93,16 +110,16 @@ docs/
   requirements.md    # Tracked requirements with status
   systemoverview.md  # Architecture diagrams
   masterplan.md      # Milestones and risks
-src/minitv/          # Python package stub
+src/minitv/          # Python package stub + Trashcan.png icon asset
 tests/               # Placeholder tests
 .pre-commit-config.yaml
 ```
 
 ## Security
 
-- Wi-Fi credentials and the recovery AP password are kept in `secrets.yaml`, which is
-  excluded from version control by `.gitignore`.
+- Wi-Fi credentials, the recovery AP password, and the Home Assistant Long-Lived Access
+  Token (`ha_token`) are kept in `secrets.yaml`, which is excluded from version control by
+  `.gitignore`.
 - Gitleaks runs on every commit via pre-commit to block accidental secret exposure.
 - The web server is enabled for local debugging; disable it in production by removing
   the `web_server:` block from `MiniTV.yaml`.
-

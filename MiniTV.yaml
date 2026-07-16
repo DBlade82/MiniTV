@@ -4,12 +4,18 @@
 #
 # Target hardware: GeekMagic Mini-TV (ESP8266 / d1_mini / ESP-12F)
 # Display:         ST7789V 240×240 SPI panel
-# Purpose:         Clock display with Home Assistant push-alert overlay.
+# Purpose:         Clock display with Home Assistant push-alert overlay and
+#                  waste-collection reminder icons.
 #
 # Quickstart:
 #   1. Add wifi_ssid and wifi_password to secrets.yaml.
-#   2. Flash:  esphome run MiniTV.yaml
-#   3. Trigger an alert from a Home Assistant automation:
+#   2. Add ha_token to secrets.yaml — a Home Assistant Long-Lived Access
+#      Token, formatted as the full HTTP header value:
+#        ha_token: "Bearer <your-long-lived-access-token>"
+#      Used by the device to poll the waste-collection calendar over the
+#      Home Assistant REST API (see the http_request/interval section below).
+#   3. Flash:  esphome run MiniTV.yaml
+#   4. Trigger an alert from a Home Assistant automation:
 #        service: esphome.minitv_trigger_alert
 #        data:
 #          alert_message: "Motion detected!"
@@ -18,6 +24,19 @@
 #          alert_color_b: 0
 #          alert_font_black: false
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Substitutions — Home Assistant connection details for the waste-calendar poll
+#
+# base_url:   Home Assistant instance reachable from the device over plain
+#             HTTP on the local network (no TLS, port 80).
+# calendar_entity_id: The HA calendar entity that contains the Neuenbürg
+#             waste-collection events (Glas / Restmüll / Papier /
+#             Leichtverpackungen).
+# ------------------------------------------------------------------------------
+substitutions:
+  ha_base_url: "http://192.168.223.101"
+  ha_calendar_entity: "calendar.ics"
 
 # ------------------------------------------------------------------------------
 # Core ESPHome identity
@@ -99,6 +118,30 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '5000'  # Default: 5-second display window.
+
+  # ------------------------------------------------------------------------
+  # Waste-collection countdown (days remaining until next collection).
+  #
+  # Populated by the periodic Home Assistant calendar poll (see the
+  # http_request/interval section below). -1 means "no collection of this
+  # type within the next 3 days", so its icon stays hidden.
+  # ------------------------------------------------------------------------
+  - id: days_restmuell
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_leichtverpackung
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_glas
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: days_papier
+    type: int
+    restore_value: no
+    initial_value: '-1'
 
 # ------------------------------------------------------------------------------
 # Wi-Fi
@@ -228,6 +271,137 @@ time:
     id: ha_time
 
 # ------------------------------------------------------------------------------
+# JSON support
+#
+# Provides the ArduinoJson bindings used to parse the Home Assistant calendar
+# API response in the waste-collection poll below.
+# ------------------------------------------------------------------------------
+json:
+
+# ------------------------------------------------------------------------------
+# HTTP client — used to poll the Home Assistant Calendar REST API
+#
+# Home Assistant is reached over plain HTTP on the local network, so TLS/SSL
+# support is disabled entirely to save flash on the ESP8266.
+# ------------------------------------------------------------------------------
+http_request:
+  id: http_client
+  useragent: MiniTV
+  timeout: 10s
+  verify_ssl: false               # Required on non-ESP32 platforms.
+  esp8266_disable_ssl_support: true  # No HTTPS needed; saves flash.
+
+# ------------------------------------------------------------------------------
+# Waste-collection calendar poll
+#
+# Every 30 minutes (and once ~20s after boot), fetch the next few days of
+# events from the Home Assistant calendar entity holding the Neuenbürg waste
+# schedule, and update the days_* globals used by the display lambda.
+#
+# The request window is "yesterday" through "+5 days" (all-day events are
+# date-only, so a little slack absorbs any timezone rounding). Only events
+# within 0–3 days from today are kept; everything else leaves the
+# corresponding global at -1 (icon hidden).
+# ------------------------------------------------------------------------------
+interval:
+  - interval: 30min
+    startup_delay: 20s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ha_time).now().is_valid();'
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  auto now = id(ha_time).now();
+                  time_t start_epoch = now.timestamp - 86400;       // yesterday
+                  time_t end_epoch   = now.timestamp + 5 * 86400;   // +5 days
+                  ESPTime start_t = ESPTime::from_epoch_local(start_epoch);
+                  ESPTime end_t   = ESPTime::from_epoch_local(end_epoch);
+                  std::string start_str = start_t.strftime("%Y-%m-%dT00:00:00");
+                  std::string end_str   = end_t.strftime("%Y-%m-%dT00:00:00");
+                  return std::string("${ha_base_url}/api/calendars/${ha_calendar_entity}?start=") +
+                         start_str + "&end=" + end_str;
+                request_headers:
+                  Authorization: !secret ha_token
+                capture_response: true
+                on_response:
+                  then:
+                    - lambda: |-
+                        static const char *const TAG = "waste_cal";
+                        if (response->status_code != 200) {
+                          ESP_LOGW(TAG, "HTTP %d fetching waste calendar", response->status_code);
+                          return;
+                        }
+
+                        // Howard Hinnant's days-from-civil algorithm — converts a
+                        // (year, month, day) date into a day count, so two dates
+                        // can be subtracted to get "days until" without dealing
+                        // with months/leap-years by hand.
+                        auto days_from_civil = [](int y, int m, int d) -> long {
+                          y -= m <= 2;
+                          long era = (y >= 0 ? y : y - 399) / 400;
+                          unsigned yoe = (unsigned) (y - era * 400);
+                          unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+                          unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+                          return era * 146097 + (long) doe - 719468;
+                        };
+
+                        auto now = id(ha_time).now();
+                        long today_days = days_from_civil(now.year, now.month, now.day_of_month);
+
+                        // Reset all categories before parsing; anything not found
+                        // in this response has no collection within the window.
+                        id(days_restmuell) = -1;
+                        id(days_leichtverpackung) = -1;
+                        id(days_glas) = -1;
+                        id(days_papier) = -1;
+
+                        JsonDocument doc;
+                        DeserializationError json_err = deserializeJson(doc, body);
+                        if (json_err) {
+                          ESP_LOGW(TAG, "Waste calendar JSON parse failed: %s", json_err.c_str());
+                          return;
+                        }
+
+                        for (JsonObject ev : doc.as<JsonArray>()) {
+                          std::string date_str;
+                          if (ev["start"]["date"].is<const char *>()) {
+                            date_str = ev["start"]["date"].as<std::string>();
+                          } else if (ev["start"]["dateTime"].is<const char *>()) {
+                            date_str = ev["start"]["dateTime"].as<std::string>().substr(0, 10);
+                          } else {
+                            continue;
+                          }
+
+                          int y, mo, da;
+                          if (sscanf(date_str.c_str(), "%d-%d-%d", &y, &mo, &da) != 3) continue;
+                          int diff = (int) (days_from_civil(y, mo, da) - today_days);
+                          if (diff < 0 || diff > 3) continue;
+
+                          std::string summary = ev["summary"] | "";
+                          int *slot = nullptr;
+                          if (summary.find("Restmüll") != std::string::npos) {
+                            slot = &id(days_restmuell);
+                          } else if (summary.find("Leichtverpackung") != std::string::npos) {
+                            slot = &id(days_leichtverpackung);
+                          } else if (summary.find("Glas") != std::string::npos) {
+                            slot = &id(days_glas);
+                          } else if (summary.find("Papier") != std::string::npos) {
+                            slot = &id(days_papier);
+                          }
+
+                          if (slot != nullptr && (*slot == -1 || diff < *slot)) {
+                            *slot = diff;
+                          }
+                        }
+                on_error:
+                  then:
+                    - logger.log:
+                        tag: "waste_cal"
+                        format: "Waste calendar HTTP request failed (network error)"
+
+# ------------------------------------------------------------------------------
 # SPI bus — Hardware SPI on ESP8266
 #
 # Pin mapping (verified for GeekMagic Mini-TV):
@@ -256,10 +430,27 @@ spi:
 font:
   - file: "gfonts://Roboto Mono"
     id: clock_font
-    size: 32  # Fits "HH:MM:SS" / "DD-MM-YYYY" / "Wednesday" centred on a 240px-wide panel.
+    size: 32  # Fits "HH:MM:SS" / "DD-MM-YYYY" centred on a 240px-wide panel.
   - file: "gfonts://Roboto Mono"
     id: alert_font
     size: 32  # Matched to clock_font for visual consistency.
+  - file: "gfonts://Roboto Mono"
+    id: icon_font
+    size: 18  # Small day-countdown number overlaid on each waste-collection icon.
+
+# ------------------------------------------------------------------------------
+# Images
+#
+# trash_icon: single trash-can glyph, tinted per waste type at draw time
+# (BINARY + chroma_key transparency lets it.image() recolour the opaque
+# pixels while skipping the transparent background entirely).
+# ------------------------------------------------------------------------------
+image:
+  - file: "src/minitv/Trashcan.png"
+    id: trash_icon
+    type: BINARY
+    transparency: chroma_key
+    resize: 40x40
 
 # ------------------------------------------------------------------------------
 # Backlight — PWM output
@@ -304,9 +495,10 @@ light:
 #   Implements a three-step state machine:
 #     1. Auto-dismiss an alert whose age exceeds ALERT_DURATION_MS.
 #     2. If alert active → render blinking overlay and return early.
-#     3. Otherwise → render the current time (top line), date DD-MM-YYYY
-#        (middle line), and full weekday name (bottom line), all from
-#        Home Assistant.
+#     3. Otherwise → render the current time (top line) and date DD-MM-YYYY
+#        (second line) from Home Assistant, plus waste-collection reminder
+#        icons along the bottom (see the http_request/interval section
+#        above for how the countdown values are fetched).
 # ------------------------------------------------------------------------------
 display:
   - platform: mipi_spi
@@ -375,11 +567,14 @@ display:
       }
 
       // --- Step 3: Normal clock display --------------------------------------
-      // Three-line layout for readability: time / date / full weekday name.
-      // LINE_OFFSET is the vertical gap between adjacent text baselines
-      // (font size 32 -> ~36px line height keeps the lines legible and
-      // non-overlapping while still fitting the 240px-tall panel).
-      const int LINE_OFFSET = 36;
+      // Layout: time and date near the top; waste-collection icons along the
+      // bottom. The weekday name is no longer shown, freeing vertical space
+      // for the icon row.
+      const int TIME_Y = it.get_height() * 25 / 100;  // ~60px on a 240px panel.
+      const int DATE_Y = it.get_height() * 42 / 100;  // ~100px on a 240px panel.
+      const int ICON_Y = it.get_height() * 79 / 100;  // ~190px on a 240px panel.
+      const int ICON_SIZE = 40;
+      const int ICON_GAP  = 10;
 
       it.fill(Color(0, 0, 0));  // Black background.
       auto now = id(ha_time).now();
@@ -389,17 +584,56 @@ display:
         return;
       }
 
-      // Time — top line, shifted up to make room for date and weekday below.
-      it.strftime(cx, cy - LINE_OFFSET, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+      // Time — top line.
+      it.strftime(cx, TIME_Y, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
                   "%H:%M:%S", now);
 
-      // Date — middle line, at the position the time used to occupy.
-      it.strftime(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+      // Date — second line.
+      it.strftime(cx, DATE_Y, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
                   "%d-%m-%Y", now);
 
-      // Weekday — bottom line, full name (now.day_of_week: 1=Sunday..7=Saturday).
-      static const char *const WEEKDAY_NAME[8] = {
-          "", "Sunday", "Monday", "Tuesday", "Wednesday",
-          "Thursday", "Friday", "Saturday"};
-      it.print(cx, cy + LINE_OFFSET, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
-               WEEKDAY_NAME[now.day_of_week]);
+      // --- Waste-collection icons ---------------------------------------------
+      // Each entry pairs the remaining-days countdown (from the periodic HA
+      // calendar poll) with the tint colour for that waste type and a
+      // contrasting colour for the day-count number drawn on top of it.
+      // days == -1 means "no collection within 3 days" → icon hidden.
+      struct WasteIcon {
+        int days;
+        Color color;
+        Color number_color;
+      };
+      WasteIcon icons[] = {
+          {id(days_restmuell),        Color(255, 255, 255), Color(0, 0, 0)},      // Restmüll: white
+          {id(days_leichtverpackung), Color(255, 210, 0),   Color(0, 0, 0)},      // Leichtverpackung: yellow
+          {id(days_glas),             Color(40, 110, 255),  Color(255, 255, 255)},// Glas: blue
+          {id(days_papier),           Color(30, 180, 60),   Color(255, 255, 255)},// Papier: green
+      };
+
+      // Blink phase: 1s on / 1s off (0.5 Hz) on the last day before
+      // collection and on collection day itself (days <= 1).
+      bool blink_visible = (millis() % 2000) < 1000;
+
+      int active_count = 0;
+      for (auto &icon : icons) {
+        if (icon.days >= 0 && icon.days <= 3) active_count++;
+      }
+
+      if (active_count > 0) {
+        int total_width = active_count * ICON_SIZE + (active_count - 1) * ICON_GAP;
+        int start_x = cx - total_width / 2;
+        int slot = 0;
+        for (auto &icon : icons) {
+          if (icon.days < 0 || icon.days > 3) continue;
+          bool should_blink = icon.days <= 1;
+          if (!should_blink || blink_visible) {
+            int x = start_x + slot * (ICON_SIZE + ICON_GAP);
+            int y = ICON_Y - ICON_SIZE / 2;
+            it.image(x, y, id(trash_icon), icon.color);
+            char days_str[4];
+            snprintf(days_str, sizeof(days_str), "%d", icon.days);
+            it.printf(x + ICON_SIZE / 2, ICON_Y, id(icon_font), icon.number_color,
+                      TextAlign::CENTER, days_str);
+          }
+          slot++;  // Keep consistent horizontal spacing even while blinking off.
+        }
+      }
