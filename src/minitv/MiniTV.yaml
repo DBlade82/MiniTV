@@ -446,7 +446,8 @@ font:
 # pixels while skipping the transparent background entirely).
 # ------------------------------------------------------------------------------
 image:
-  - file: "Trashcan.png"
+  - platform: file
+    file: "Trashcan.png"
     id: trash_icon
     type: BINARY
     transparency: chroma_key
