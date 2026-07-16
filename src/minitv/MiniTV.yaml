@@ -436,7 +436,7 @@ font:
     size: 32  # Matched to clock_font for visual consistency.
   - file: "gfonts://Roboto Mono"
     id: icon_font
-    size: 18  # Small day-countdown number overlaid on each waste-collection icon.
+    size: 26  # Day-countdown number, drawn on a solid contrast badge over each icon.
 
 # ------------------------------------------------------------------------------
 # Images
@@ -451,7 +451,7 @@ image:
     id: trash_icon
     type: BINARY
     transparency: chroma_key
-    resize: 40x40
+    resize: 52x52  # Keep in sync with ICON_SIZE in the display lambda below.
 
 # ------------------------------------------------------------------------------
 # Backlight — PWM output
@@ -574,8 +574,8 @@ display:
       const int TIME_Y = it.get_height() * 25 / 100;  // ~60px on a 240px panel.
       const int DATE_Y = it.get_height() * 42 / 100;  // ~100px on a 240px panel.
       const int ICON_Y = it.get_height() * 79 / 100;  // ~190px on a 240px panel.
-      const int ICON_SIZE = 40;
-      const int ICON_GAP  = 10;
+      const int ICON_SIZE = 52;  // Must match the image: resize dimensions below.
+      const int ICON_GAP  = 8;   // 4 icons: 4*52 + 3*8 = 232px, fits a 240px-wide panel.
 
       it.fill(Color(0, 0, 0));  // Black background.
       auto now = id(ha_time).now();
@@ -595,19 +595,21 @@ display:
 
       // --- Waste-collection icons ---------------------------------------------
       // Each entry pairs the remaining-days countdown (from the periodic HA
-      // calendar poll) with the tint colour for that waste type and a
-      // contrasting colour for the day-count number drawn on top of it.
+      // calendar poll) with the tint colour for that waste type, plus a
+      // solid badge/text colour pair so the day-count digit stays legible
+      // regardless of where it lands on the (busy) icon artwork.
       // days == -1 means "no collection within 3 days" → icon hidden.
       struct WasteIcon {
         int days;
         Color color;
-        Color number_color;
+        Color badge_color;  // Solid disc drawn behind the digit for contrast.
+        Color text_color;   // Digit colour, chosen to contrast badge_color.
       };
       WasteIcon icons[] = {
-          {id(days_restmuell),        Color(255, 255, 255), Color(0, 0, 0)},      // Restmüll: white
-          {id(days_leichtverpackung), Color(255, 210, 0),   Color(0, 0, 0)},      // Leichtverpackung: yellow
-          {id(days_glas),             Color(40, 110, 255),  Color(255, 255, 255)},// Glas: blue
-          {id(days_papier),           Color(30, 180, 60),   Color(255, 255, 255)},// Papier: green
+          {id(days_restmuell),        Color(255, 255, 255), Color(0, 0, 0),       Color(255, 255, 255)}, // Restmüll: white icon, black badge
+          {id(days_leichtverpackung), Color(255, 210, 0),   Color(0, 0, 0),       Color(255, 255, 255)}, // Leichtverpackung: yellow icon, black badge
+          {id(days_glas),             Color(40, 110, 255),  Color(255, 255, 255), Color(0, 0, 0)},       // Glas: blue icon, white badge
+          {id(days_papier),           Color(30, 180, 60),   Color(255, 255, 255), Color(0, 0, 0)},       // Papier: green icon, white badge
       };
 
       // Blink phase: 1s on / 1s off (0.5 Hz) on the last day before
@@ -630,9 +632,13 @@ display:
             int x = start_x + slot * (ICON_SIZE + ICON_GAP);
             int y = ICON_Y - ICON_SIZE / 2;
             it.image(x, y, id(trash_icon), icon.color);
+            int badge_cx = x + ICON_SIZE / 2;
+            int badge_cy = ICON_Y;
+            int badge_radius = ICON_SIZE * 9 / 40;  // ~12px on a 52px icon.
+            it.filled_circle(badge_cx, badge_cy, badge_radius, icon.badge_color);
             char days_str[4];
             snprintf(days_str, sizeof(days_str), "%d", icon.days);
-            it.printf(x + ICON_SIZE / 2, ICON_Y, id(icon_font), icon.number_color,
+            it.printf(badge_cx, badge_cy, id(icon_font), icon.text_color,
                       TextAlign::CENTER, days_str);
           }
           slot++;  // Keep consistent horizontal spacing even while blinking off.
