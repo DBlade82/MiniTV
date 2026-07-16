@@ -256,7 +256,7 @@ spi:
 font:
   - file: "gfonts://Roboto Mono"
     id: clock_font
-    size: 32  # Fits "HH:MM:SS" / "DD-MM-YYYY Xx" centred on a 240px-wide panel.
+    size: 32  # Fits "HH:MM:SS" / "DD-MM-YYYY" / "Wednesday" centred on a 240px-wide panel.
   - file: "gfonts://Roboto Mono"
     id: alert_font
     size: 32  # Matched to clock_font for visual consistency.
@@ -304,9 +304,9 @@ light:
 #   Implements a three-step state machine:
 #     1. Auto-dismiss an alert whose age exceeds ALERT_DURATION_MS.
 #     2. If alert active → render blinking overlay and return early.
-#     3. Otherwise → render the current time (top line) and the date plus
-#        two-letter weekday abbreviation, DD-MM-YYYY (bottom line), both
-#        from Home Assistant.
+#     3. Otherwise → render the current time (top line), date DD-MM-YYYY
+#        (middle line), and full weekday name (bottom line), all from
+#        Home Assistant.
 # ------------------------------------------------------------------------------
 display:
   - platform: mipi_spi
@@ -375,10 +375,11 @@ display:
       }
 
       // --- Step 3: Normal clock display --------------------------------------
-      // Two-line layout: time on top, date + weekday abbreviation below.
-      // LINE_OFFSET is half the vertical gap between the two text baselines
-      // (font size 32 -> ~36px line height, so 18px above/below centre).
-      const int LINE_OFFSET = 20;
+      // Three-line layout for readability: time / date / full weekday name.
+      // LINE_OFFSET is the vertical gap between adjacent text baselines
+      // (font size 32 -> ~36px line height keeps the lines legible and
+      // non-overlapping while still fitting the 240px-tall panel).
+      const int LINE_OFFSET = 36;
 
       it.fill(Color(0, 0, 0));  // Black background.
       auto now = id(ha_time).now();
@@ -388,17 +389,17 @@ display:
         return;
       }
 
-      // Time — shifted up to make room for the date line below it.
+      // Time — top line, shifted up to make room for date and weekday below.
       it.strftime(cx, cy - LINE_OFFSET, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
                   "%H:%M:%S", now);
 
-      // Date line — DD-MM-YYYY plus the first two letters of the weekday,
-      // rendered where the time used to be (now.day_of_week: 1=Sunday..7=Saturday).
-      static const char *const WEEKDAY_ABBR[8] = {
-          "", "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
-      char date_line[24];
-      snprintf(date_line, sizeof(date_line), "%02d-%02d-%04d %s",
-               now.day_of_month, now.month, now.year,
-               WEEKDAY_ABBR[now.day_of_week]);
+      // Date — middle line, at the position the time used to occupy.
+      it.strftime(cx, cy, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
+                  "%d-%m-%Y", now);
+
+      // Weekday — bottom line, full name (now.day_of_week: 1=Sunday..7=Saturday).
+      static const char *const WEEKDAY_NAME[8] = {
+          "", "Sunday", "Monday", "Tuesday", "Wednesday",
+          "Thursday", "Friday", "Saturday"};
       it.print(cx, cy + LINE_OFFSET, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
-                date_line);
+               WEEKDAY_NAME[now.day_of_week]);
