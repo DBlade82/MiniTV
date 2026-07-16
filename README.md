@@ -27,8 +27,8 @@ clock and customizable push-alert overlays triggered from Home Assistant.
 
 ## Installation
 
-1. Copy `MiniTV.yaml` into your ESPHome config folder (e.g. `/config/esphome/`).
-2. Create `/config/esphome/secrets.yaml` (never commit this file):
+1. Copy `src/minitv/MiniTV.yaml` into your ESPHome config folder (e.g. `/config/esphome/`).
+2. Create a `secrets.yaml` next to it (never commit this file):
    ```yaml
    wifi_ssid: "YourSSID"
    wifi_password: "YourPassword"
@@ -42,7 +42,7 @@ clock and customizable push-alert overlays triggered from Home Assistant.
    (`http://192.168.223.101` / `calendar.ics`).
 4. Flash:
    ```bash
-   esphome run MiniTV.yaml
+   esphome run src/minitv/MiniTV.yaml
    ```
 
 ## Usage
@@ -99,18 +99,20 @@ pre-commit install
 
 ```bash
 pre-commit run --all-files       # YAML lint + secrets scan
-esphome config MiniTV.yaml       # ESPHome syntax check (requires ESPHome CLI)
+esphome config src/minitv/MiniTV.yaml   # ESPHome syntax check (requires ESPHome CLI)
 ```
 
 ### Repository layout
 
 ```
-MiniTV.yaml          # ESPHome configuration (primary deliverable)
 docs/
   requirements.md    # Tracked requirements with status
   systemoverview.md  # Architecture diagrams
   masterplan.md      # Milestones and risks
-src/minitv/          # Python package stub + Trashcan.png icon asset
+src/minitv/
+  MiniTV.yaml        # ESPHome configuration (primary deliverable)
+  Trashcan.png        # Waste-collection icon asset
+  __init__.py, __main__.py  # Python package stub
 tests/               # Placeholder tests
 .pre-commit-config.yaml
 ```
@@ -122,4 +124,4 @@ tests/               # Placeholder tests
   `.gitignore`.
 - Gitleaks runs on every commit via pre-commit to block accidental secret exposure.
 - The web server is enabled for local debugging; disable it in production by removing
-  the `web_server:` block from `MiniTV.yaml`.
+  the `web_server:` block from `src/minitv/MiniTV.yaml`.

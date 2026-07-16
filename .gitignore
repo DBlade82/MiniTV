@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.esphome/
 
 # OS / IDE
 .DS_Store

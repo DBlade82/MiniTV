@@ -2,7 +2,7 @@
 
 ## Project Context
 - This workspace targets a GeekMagic Mini-TV flashed with ESPHome on ESP8266 (`d1_mini` / ESP-12F class hardware).
-- Primary config file is `MiniTV.yaml`.
+- Primary config file is `src/minitv/MiniTV.yaml`.
 
 ## ESPHome Rules For This Project
 - Treat missing `secrets.yaml` errors as a first-class setup issue. Either:

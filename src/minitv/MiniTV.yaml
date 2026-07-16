@@ -446,7 +446,7 @@ font:
 # pixels while skipping the transparent background entirely).
 # ------------------------------------------------------------------------------
 image:
-  - file: "src/minitv/Trashcan.png"
+  - file: "Trashcan.png"
     id: trash_icon
     type: BINARY
     transparency: chroma_key

@@ -22,7 +22,7 @@ Implement a flash alert overlay that:
 - The display `lambda` (100 ms interval) auto-dismisses and blends back to clock rendering.
 
 **Traceability:**
-- `MiniTV.yaml` — `globals:`, `api:`, `display.lambda`
+- `src/minitv/MiniTV.yaml` — `globals:`, `api:`, `display.lambda`
 
 ## REQ-002: Clock Shows Date Alongside Time
 
@@ -37,7 +37,7 @@ Implement a flash alert overlay that:
   `ha_time` (Home Assistant) time source.
 
 **Traceability:**
-- `MiniTV.yaml` — `time:`, `display.lambda`
+- `src/minitv/MiniTV.yaml` — `time:`, `display.lambda`
 
 ## REQ-003: Waste-Collection Reminder Icons
 
@@ -72,6 +72,6 @@ Implement a flash alert overlay that:
   the 0.5 Hz blink when `days <= 1`.
 
 **Traceability:**
-- `MiniTV.yaml` — `substitutions:`, `globals:`, `json:`, `http_request:`, `interval:`,
+- `src/minitv/MiniTV.yaml` — `substitutions:`, `globals:`, `json:`, `http_request:`, `interval:`,
   `image:`, `font: (icon_font)`, `display.lambda`
 - `src/minitv/Trashcan.png`
