@@ -42,4 +42,4 @@ substitutions:
   ha_calendar_entity:   "calendar.ics"
 
 packages:
-  common: !include ../common/minitv-common.yaml
+  common: !include ./common/minitv-common.yaml

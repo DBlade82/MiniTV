@@ -36,7 +36,7 @@ substitutions:
   mirror_x:            "true"
   ha_base_url:         "http://192.168.223.101"
   ha_calendar_entity:  "calendar.ics"
-  trashcan_icon_path:  "../common/Trashcan.png"
+  trashcan_icon_path:  "./Trashcan.png"
 
 # ------------------------------------------------------------------------------
 # Core ESPHome identity
