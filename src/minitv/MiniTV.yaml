@@ -1,3 +1,6 @@
+esphome:
+  friendly_name: Mini-TV Office
+
 # ==============================================================================
 # MiniTV — "Kristallwürfel" device configuration
 # ==============================================================================
@@ -34,9 +37,9 @@
 # ==============================================================================
 
 substitutions:
-  device_name:         "minitv"
-  friendly_name:        "GeekMagic Mini-TV"
-  static_ip:            "192.168.223.79"
+  device_name:          "minitv"
+  friendly_name:        "Blade TV"
+  static_ip:            "192.168.224.79"
   mirror_x:             "true"   # Cube enclosure mirrors the panel horizontally.
   ha_base_url:          "http://192.168.223.101"
   ha_calendar_entity:   "calendar.ics"

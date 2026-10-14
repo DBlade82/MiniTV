@@ -28,10 +28,10 @@
 # ==============================================================================
 
 substitutions:
-  device_name:        "minitv"
+  device_name:         "minitv"
   friendly_name:       "GeekMagic Mini-TV"
-  static_ip:           "192.168.223.79"
-  gateway_ip:          "192.168.223.1"
+  static_ip:           "192.168.224.79"
+  gateway_ip:          "192.168.224.1"
   subnet_mask:         "255.255.255.0"
   mirror_x:            "true"
   ha_base_url:         "http://192.168.223.101"
@@ -144,6 +144,17 @@ globals:
     type: int
     restore_value: no
     initial_value: '-1'
+
+  # Poll scheduling: the interval below ticks every 30 s but only fetches when
+  # no poll has succeeded yet, or the last success is >= 30 min old.
+  - id: waste_poll_ok
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: waste_last_success_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 # ------------------------------------------------------------------------------
 # Wi-Fi
@@ -298,10 +309,11 @@ http_request:
 # ------------------------------------------------------------------------------
 # Waste-collection calendar poll
 #
-# Every 30 minutes (and once ~20s after boot), fetch the next few days of
-# events from the Home Assistant calendar entity holding the waste schedule
-# (ha_calendar_entity), and update the days_* globals used by the display
-# lambda.
+# ~20s after boot, fetch the next few days of events from the Home Assistant
+# calendar entity holding the waste schedule (ha_calendar_entity), and update
+# the days_* globals used by the display lambda. The interval ticks every 30 s;
+# a poll is attempted on every tick until one succeeds, after which the next
+# poll is due 30 minutes later (and is retried every 30 s if it fails).
 #
 # The request window is "yesterday" through "+5 days" (all-day events are
 # date-only, so a little slack absorbs any timezone rounding). Only events
@@ -309,12 +321,15 @@ http_request:
 # corresponding global at -1 (icon hidden).
 # ------------------------------------------------------------------------------
 interval:
-  - interval: 30min
+  - interval: 30s
     startup_delay: 20s
     then:
       - if:
           condition:
-            lambda: 'return id(ha_time).now().is_valid();'
+            lambda: |-
+              if (!id(ha_time).now().is_valid()) return false;
+              return !id(waste_poll_ok) ||
+                     (millis() - id(waste_last_success_ms)) >= 30UL * 60UL * 1000UL;
           then:
             - http_request.get:
                 url: !lambda |-
@@ -400,6 +415,12 @@ interval:
                             *slot = diff;
                           }
                         }
+
+                        id(waste_poll_ok) = true;
+                        id(waste_last_success_ms) = millis();
+                        ESP_LOGD(TAG, "Poll OK: restmuell=%d leichtverpackung=%d glas=%d papier=%d",
+                                 id(days_restmuell), id(days_leichtverpackung),
+                                 id(days_glas), id(days_papier));
                 on_error:
                   then:
                     - logger.log:

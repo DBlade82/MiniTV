@@ -14,7 +14,7 @@ C4Context
     System(ha, "Home Assistant", "Orchestration hub — time sync, service calls, calendar REST API")
     System_Boundary(device, "GeekMagic Mini-TV (ESP8266)") {
         Component(esphome, "ESPHome Runtime", "Wi-Fi, API, OTA, Logger")
-        Component(httpclient, "HTTP Client", "Polls HA Calendar REST API every 30 min")
+        Component(httpclient, "HTTP Client", "Polls HA Calendar REST API every 30 min (30 s retry until first success)")
         Component(display, "ST7789V Display Lambda", "Renders clock, waste icons, or alert overlay every 100 ms")
         Component(backlight, "PWM Backlight", "GPIO5 — brightness control")
         Component(globals, "State Globals", "Alert state + per-waste-type days-until-collection")
@@ -59,7 +59,7 @@ sequenceDiagram
     participant DISP as ST7789V Display
 
     HA-->>ESP: Time sync (homeassistant platform)
-    Note over ESP: Every 30 min (http_request + interval)
+    Note over ESP: every 30 min (30 s retry until first success) (http_request + interval)
     ESP->>HA: GET /api/calendars/calendar.ics?start=...&end=...
     HA-->>ESP: Events JSON (Glas/Restmüll/Papier/Leichtverpackungen)
     ESP->>ESP: Parse JSON → update days_* globals

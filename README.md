@@ -67,7 +67,7 @@ time is synced from Home Assistant. During the brief boot window it shows `Synci
 
 ### Waste-collection icons
 
-Every 30 minutes the device polls Home Assistant's calendar REST API for upcoming waste
+Every 30 minutes (retrying every 30 s until the first success) the device polls Home Assistant's calendar REST API for upcoming waste
 collection events. Starting 3 days before a collection, a small trash-can icon appears
 along the bottom of the display, tinted by waste type (white = Restmüll, yellow =
 Leichtverpackung, blue = Glas, green = Papier) with the number of days remaining shown on
@@ -143,3 +143,7 @@ tests/               # Placeholder tests
 - Gitleaks runs on every commit via pre-commit to block accidental secret exposure.
 - The web server is enabled for local debugging; disable it in production by removing
   the `web_server:` block from `src/common/minitv-common.yaml` (affects every device).
+
+## Original FW
+
+- Original Firmware from manufacturer can be found here: https://github.com/GeekMagicClock/smalltv-ultra

@@ -62,7 +62,7 @@ Implement a flash alert overlay that:
   (`GET /api/calendars/calendar.ics?start=...&end=...`) directly over HTTP using the
   `http_request` component, authenticated with a Long-Lived Access Token
   (`!secret ha_token`, formatted as the full `Authorization: Bearer ...` header value).
-- Polling runs every 30 minutes (`interval:`), fetching a window from yesterday to +5 days.
+- Polling retries every 30 s until the first success, then runs every 30 minutes (`interval:` 30s + due-check; failures retry every 30 s), fetching a window from yesterday to +5 days.
 - The JSON response is parsed with ArduinoJson (`json:` component); for each event within
   0–3 days of today, the minimum "days until" value is stored per waste type in
   `globals:` (`days_restmuell`, `days_leichtverpackung`, `days_glas`, `days_papier`; `-1`
