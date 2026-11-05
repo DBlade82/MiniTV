@@ -74,6 +74,13 @@ Leichtverpackung, blue = Glas, green = Papier) with the number of days remaining
 the icon (`0` on collection day). On the last day before collection and on the collection
 day itself, the icon blinks at 0.5 Hz. Multiple icons can be shown at once.
 
+### Cat enter/leave icons
+
+Call `esphome.<device_name>_cat_enters` or `esphome.<device_name>_cat_leaves` with
+`cat: chilli` or `cat: snoopy`. The matching icon blinks 3 times (1 s on, 1 s off).
+Copy `src/common/cat_*.png` next to the device YAML (like `Trashcan.png`); regenerate
+them with `python tools/make_cat_icons.py`.
+
 ### Trigger an alert from Home Assistant
 
 Call the service `esphome.minitv_trigger_alert` from an automation, script, or Developer Tools:

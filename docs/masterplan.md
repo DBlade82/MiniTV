@@ -11,6 +11,7 @@
 | 5 | Documentation refresh, secrets audit, remote publish | ✅ Done |
 | 6 | Clock date display and waste-collection reminder icons | ✅ Done |
 | 7 | Modular multi-device ESPHome package structure | ✅ Done |
+| 8 | Cat enter/leave icons (HA services) | ✅ Done |
 
 ## Current Focus
 
