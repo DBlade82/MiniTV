@@ -118,11 +118,40 @@ def make_icon(cat: str, entering: bool) -> Image.Image:
     return img.resize((W, H), Image.LANCZOS)
 
 
+def make_small_icon(cat: str, at_home: bool, size: int = 40) -> Image.Image:
+    """Corner status icon: cat face inside a house (home) or on a meadow (out)."""
+    base = 96
+    img = Image.new("RGB", (base * S, base * S), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    if at_home:
+        white = (255, 255, 255)
+        d.polygon([(2 * S, 42 * S), (48 * S, 4 * S), (94 * S, 42 * S)],
+                  fill=(200, 60, 50), outline=white, width=S)
+        d.rectangle([10 * S, 42 * S, 86 * S, 94 * S], fill=white)
+        cat_cy = 58
+    else:
+        d.rectangle([0, 76 * S, base * S, base * S], fill=(40, 170, 50))
+        for gx in range(4, base, 8):
+            d.polygon([(gx * S, 76 * S), ((gx + 3) * S, 66 * S), ((gx + 6) * S, 76 * S)],
+                      fill=(40, 170, 50))
+        cat_cy = 56
+    # Draw the cat on its own layer so it can be scaled down to fit.
+    layer = Image.new("RGBA", (80 * S, 80 * S), (0, 0, 0, 0))
+    draw_cat(ImageDraw.Draw(layer), 40 * S, 48 * S, CATS[cat])
+    layer = layer.resize((int(layer.width * 0.78), int(layer.height * 0.78)), Image.LANCZOS)
+    img.paste(layer, (48 * S - layer.width // 2, (cat_cy - 30) * S), layer)
+    return img.resize((size, size), Image.LANCZOS)
+
+
 def main() -> None:
     for cat in CATS:
         for entering in (True, False):
             name = f"cat_{cat}_{'in' if entering else 'out'}.png"
             make_icon(cat, entering).save(OUT_DIR / name)
+            print("wrote", OUT_DIR / name)
+        for at_home in (True, False):
+            name = f"cat_{cat}_small_{'home' if at_home else 'out'}.png"
+            make_small_icon(cat, at_home).save(OUT_DIR / name)
             print("wrote", OUT_DIR / name)
 
 

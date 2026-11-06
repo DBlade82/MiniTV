@@ -283,6 +283,7 @@ api:
             if (idx < 0) { ESP_LOGW("cat", "Unknown cat '%s'", cat.c_str()); return; }
             id(cat_icon_idx) = idx;
             id(cat_event_start) = millis();
+            if (idx == 0) id(chilli_home).turn_on(); else id(snoopy_home).turn_on();
     - service: cat_leaves
       variables:
         cat: string
@@ -293,6 +294,29 @@ api:
             if (idx < 0) { ESP_LOGW("cat", "Unknown cat '%s'", cat.c_str()); return; }
             id(cat_icon_idx) = idx;
             id(cat_event_start) = millis();
+            if (idx == 1) id(chilli_home).turn_off(); else id(snoopy_home).turn_off();
+
+# ------------------------------------------------------------------------------
+# Cat presence switches (exposed to Home Assistant)
+#
+# ON = cat is at home (corner icon shows the cat in a house), OFF = cat is
+# outside (cat on a meadow). Chilli is shown top-left, Snoopy top-right of the
+# clock screen. The cat_enters / cat_leaves services also flip these switches,
+# and the state survives reboots.
+# ------------------------------------------------------------------------------
+switch:
+  - platform: template
+    id: chilli_home
+    name: "Chilli at home"
+    icon: mdi:cat
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+  - platform: template
+    id: snoopy_home
+    name: "Snoopy at home"
+    icon: mdi:cat
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
 
 # ------------------------------------------------------------------------------
 # OTA (Over-The-Air) updates
@@ -541,6 +565,25 @@ image:
     id: cat_snoopy_out
     type: RGB565
 
+  # Small 40x40 corner status icons for the clock screen: cat in a house (home)
+  # or on a meadow (out).
+  - platform: file
+    file: ${cat_icon_dir}cat_chilli_small_home.png
+    id: cat_chilli_small_home
+    type: RGB565
+  - platform: file
+    file: ${cat_icon_dir}cat_chilli_small_out.png
+    id: cat_chilli_small_out
+    type: RGB565
+  - platform: file
+    file: ${cat_icon_dir}cat_snoopy_small_home.png
+    id: cat_snoopy_small_home
+    type: RGB565
+  - platform: file
+    file: ${cat_icon_dir}cat_snoopy_small_out.png
+    id: cat_snoopy_small_out
+    type: RGB565
+
 # ------------------------------------------------------------------------------
 # Backlight — PWM output
 #
@@ -700,6 +743,11 @@ display:
       // Date — second line.
       it.strftime(cx, DATE_Y, id(clock_font), Color(255, 255, 255), TextAlign::CENTER,
                   "%d-%m-%Y", now);
+
+      // Cat presence icons: Chilli top-left, Snoopy top-right.
+      it.image(0, 0, id(chilli_home).state ? id(cat_chilli_small_home) : id(cat_chilli_small_out));
+      it.image(it.get_width() - 40, 0,
+               id(snoopy_home).state ? id(cat_snoopy_small_home) : id(cat_snoopy_small_out));
 
       // --- Waste-collection icons ---------------------------------------------
       // Each entry pairs the remaining-days countdown (from the periodic HA

@@ -81,6 +81,10 @@ Call `esphome.<device_name>_cat_enters` or `esphome.<device_name>_cat_leaves` wi
 Copy `src/common/cat_*.png` next to the device YAML (like `Trashcan.png`); regenerate
 them with `python tools/make_cat_icons.py`.
 
+### Cat presence icons (clock screen)
+
+Small corner icons show whether the cats are home: Chilli top-left, Snoopy top-right. A cat in a house means *at home*, a cat on a meadow means *outside*. Home Assistant gets two switches, **Chilli at home** and **Snoopy at home** (state survives reboots); toggle them from HA or automations. The `cat_enters` / `cat_leaves` services flip them too. Copy `src/common/cat_*_small_*.png` next to the device YAML as well.
+
 ### Trigger an alert from Home Assistant
 
 Call the service `esphome.minitv_trigger_alert` from an automation, script, or Developer Tools:

@@ -15,7 +15,7 @@ C4Context
     System_Boundary(device, "GeekMagic Mini-TV (ESP8266)") {
         Component(esphome, "ESPHome Runtime", "Wi-Fi, API, OTA, Logger")
         Component(httpclient, "HTTP Client", "Polls HA Calendar REST API every 30 min (30 s retry until first success)")
-        Component(display, "ST7789V Display Lambda", "Renders clock, waste icons, or alert overlay every 100 ms")
+        Component(display, "ST7789V Display Lambda", "Renders clock, waste icons, cat presence icons, cat event blink, or alert overlay every 100 ms")
         Component(backlight, "PWM Backlight", "GPIO5 — brightness control")
         Component(globals, "State Globals", "Alert state + per-waste-type days-until-collection")
     }
@@ -33,7 +33,7 @@ C4Context
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| Shared ESPHome package | `src/common/minitv-common.yaml` | Wi-Fi, API, OTA, display, backlight, fonts, alert globals, waste-calendar poll — shared by every device via ESPHome `packages:` |
+| Shared ESPHome package | `src/common/minitv-common.yaml` | Wi-Fi, API, OTA, display, backlight, fonts, alert globals, cat presence switches + enter/leave services, waste-calendar poll — shared by every device via ESPHome `packages:` |
 | Waste icon asset | `src/common/Trashcan.png` | Trash-can glyph, tinted per waste type at draw time (shared) |
 | Device config (Kristallwürfel) | `src/minitv/MiniTV.yaml` | Per-device substitutions only: name, static IP, mirror_x, HA/calendar overrides |
 | New-device template | `src/templates/new-device.yaml.example` | Starting point for additional MiniTV units |
